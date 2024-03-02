@@ -184,6 +184,7 @@ mod let_if_seq;
 mod let_underscore;
 mod let_with_type_underscore;
 mod lifetimes;
+mod lifetimes_bound_double_ref;
 mod lines_filter_map_ok;
 mod literal_representation;
 mod loops;

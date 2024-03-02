@@ -1,61 +1,61 @@
 use clippy_utils::diagnostics::span_lint_and_help;
 use rustc_ast::ast::{GenericParam, GenericParamKind};
-use rustc_lint::{EarlyContext, EarlyLintPass, LintContext};
-use rustc_middle::lint::in_external_macro;
+use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks for lifetimes with names which are one character
-    /// long.
+    /// Checks function arguments with a double reference type with lifetimes,
+    /// and suggests to add a bound on these lifetimes.
+    /// Adding a lifetimes bound helps to avoid unsound code because this addition
+    /// can lead to a compiler error in related source code, as observed in rustc 1.76.0,
+    /// thereby avoiding the unsoundness.
     ///
     /// ### Why is this bad?
-    /// A single character is likely not enough to express the
-    /// purpose of a lifetime. Using a longer name can make code
-    /// easier to understand, especially for those who are new to
-    /// Rust.
+    /// This is described in: https://github.com/rust-lang/rust/issues/25860
+    /// as one case of unsoundness:
+    /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
     ///
     /// ### Known problems
-    /// Rust programmers and learning resources tend to use single
-    /// character lifetimes, so this lint is at odds with the
-    /// ecosystem at large. In addition, the lifetime's purpose may
-    /// be obvious or, rarely, expressible in one character.
+    /// It is not known whether this covers all cases in issue 25860.
     ///
     /// ### Example
     /// ```no_run
-    /// struct DiagnosticCtx<'a> {
-    ///     source: &'a str,
-    /// }
+    /// pub const fn lifetime_translator<'a, 'b, T>(_val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
     /// Use instead:
     /// ```no_run
-    /// struct DiagnosticCtx<'src> {
-    ///     source: &'src str,
-    /// }
+    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(_val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
-    #[clippy::version = "1.60.0"]
-    pub SINGLE_CHAR_LIFETIME_NAMES,
-    restriction,
-    "warns against single-character lifetime names"
+
+    // CHECKME:
+    #[clippy::version = "1.79.0"]
+    pub ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
+    // Use lint category nursery because changes are needed here when the unsoundness is fixed,
+    // for example to add a lint to remove the redundant bounds added here.
+    nursery,
+    "suggest to add lifetime bounds to double reference function arguments"
 }
 
-declare_lint_pass!(SingleCharLifetimeNames => [SINGLE_CHAR_LIFETIME_NAMES]);
+declare_lint_pass!(LifeTimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
-impl EarlyLintPass for SingleCharLifetimeNames {
+impl EarlyLintPass for LifeTimesBoundDoubleRef {
     fn check_generic_param(&mut self, ctx: &EarlyContext<'_>, param: &GenericParam) {
-        if in_external_macro(ctx.sess(), param.ident.span) {
-            return;
-        }
+        // CHECKME: it is probably ok to warn for this in an external macro.
+        // if in_external_macro(ctx.sess(), param.ident.span) {
+        //     return;
+        // }
 
         if let GenericParamKind::Lifetime = param.kind {
+            // FIXME: check for double reference with lifetimes.
             if !param.is_placeholder && param.ident.as_str().len() <= 2 {
                 span_lint_and_help(
                     ctx,
-                    SINGLE_CHAR_LIFETIME_NAMES,
+                    ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
                     param.ident.span,
-                    "single-character lifetime names are likely uninformative",
+                    "double reference argument without lifetime bound may lead to unsound code",
                     None,
-                    "use a more informative name",
+                    "add a lifetimes bound for the lifetimes of the reference",
                 );
             }
         }
