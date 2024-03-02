@@ -13,7 +13,7 @@ declare_clippy_lint! {
     ///
     /// ### Why is this bad?
     /// This is described in: https://github.com/rust-lang/rust/issues/25860
-    /// as one case of unsoundness:
+    /// and as one case of unsoundness here:
     /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
     ///
     /// ### Known problems
