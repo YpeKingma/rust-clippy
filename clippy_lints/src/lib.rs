@@ -1112,6 +1112,7 @@ pub fn register_lints(store: &mut rustc_lint::LintStore, conf: &'static Conf) {
     });
     store.register_late_pass(move |_| Box::new(incompatible_msrv::IncompatibleMsrv::new(msrv())));
     store.register_late_pass(|_| Box::new(to_string_trait_impl::ToStringTraitImpl));
+    store.register_late_pass(|_| Box::new(lifetimes_bound_double_ref::LifetimesBoundDoubleRef));
     // add lints here, do not remove this comment, it's used in `new_lint`
 }
 

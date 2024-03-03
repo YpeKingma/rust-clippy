@@ -1,7 +1,8 @@
 use clippy_utils::diagnostics::span_lint_and_help;
+use rustc_lint::{EarlyContext, EarlyLintPass, LateLintPass};
+use rustc_session::impl_lint_pass;
 use rustc_ast::ast::{GenericParam, GenericParamKind};
-use rustc_lint::{EarlyContext, EarlyLintPass};
-use rustc_session::declare_lint_pass;
+
 
 declare_clippy_lint! {
     /// ### What it does
@@ -28,18 +29,17 @@ declare_clippy_lint! {
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(_val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
 
-    // CHECKME:
-    #[clippy::version = "1.79.0"]
+    #[clippy::version = "1.78.0"]
     pub ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
-    // Use lint category nursery because changes are needed here when the unsoundness is fixed,
-    // for example to add a lint to remove the redundant bounds added here.
     nursery,
     "suggest to add lifetime bounds to double reference function arguments"
 }
 
-declare_lint_pass!(LifeTimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
+pub struct LifetimesBoundDoubleRef;
 
-impl EarlyLintPass for LifeTimesBoundDoubleRef {
+impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
+
+impl EarlyLintPass for LifetimesBoundDoubleRef {
     fn check_generic_param(&mut self, ctx: &EarlyContext<'_>, param: &GenericParam) {
         // CHECKME: it is probably ok to warn for this in an external macro.
         // if in_external_macro(ctx.sess(), param.ident.span) {
@@ -61,3 +61,5 @@ impl EarlyLintPass for LifeTimesBoundDoubleRef {
         }
     }
 }
+
+impl LateLintPass<'_> for LifetimesBoundDoubleRef {}
