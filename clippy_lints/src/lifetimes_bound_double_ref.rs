@@ -53,7 +53,7 @@ impl EarlyLintPass for LifetimesBoundDoubleRef {
                     ctx,
                     ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
                     param.ident.span,
-                    "double reference argument without lifetime bound may lead to unsound code",
+                    "double reference argument with lifetimes but without lifetimes bound",
                     None,
                     "add a lifetimes bound for the lifetimes of the reference",
                 );
