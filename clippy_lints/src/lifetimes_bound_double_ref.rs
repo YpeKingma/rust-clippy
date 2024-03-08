@@ -1,8 +1,5 @@
-use clippy_utils::diagnostics::span_lint_and_help;
-use rustc_lint::{EarlyContext, EarlyLintPass, LateLintPass};
+use rustc_lint::{EarlyLintPass, LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
-use rustc_ast::ast::{GenericParam, GenericParamKind};
-
 
 declare_clippy_lint! {
     /// ### What it does
@@ -39,27 +36,11 @@ pub struct LifetimesBoundDoubleRef;
 
 impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
-impl EarlyLintPass for LifetimesBoundDoubleRef {
-    fn check_generic_param(&mut self, ctx: &EarlyContext<'_>, param: &GenericParam) {
-        // CHECKME: it is probably ok to warn for this in an external macro.
-        // if in_external_macro(ctx.sess(), param.ident.span) {
-        //     return;
-        // }
+impl EarlyLintPass for LifetimesBoundDoubleRef {}
 
-        if let GenericParamKind::Lifetime = param.kind {
-            // FIXME: check for double reference with lifetimes.
-            if !param.is_placeholder && param.ident.as_str().len() <= 2 {
-                span_lint_and_help(
-                    ctx,
-                    ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
-                    param.ident.span,
-                    "double reference argument with lifetimes but without lifetimes bound",
-                    None,
-                    "add a lifetimes bound for the lifetimes of the reference",
-                );
-            }
-        }
+impl LateLintPass<'_> for LifetimesBoundDoubleRef {
+    fn check_generic_param(&mut self, _ctx: &LateContext<'_>, param: &rustc_hir::GenericParam<'_>) {
+        // dbg!(ctx);
+        dbg!(param);
     }
 }
-
-impl LateLintPass<'_> for LifetimesBoundDoubleRef {}
