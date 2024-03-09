@@ -1,4 +1,4 @@
-use rustc_lint::{EarlyLintPass, LateContext, LateLintPass};
+use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
 
 declare_clippy_lint! {
@@ -57,5 +57,19 @@ impl LateLintPass<'_> for LifetimesBoundDoubleRef {
         // dbg!(&param.hir_id.local_id);
         // dbg!(&param.def_id);
         // dbg!(&param.kind);
+    }
+
+    fn check_fn<'tcx>(
+        &mut self,
+        _ctx: &LateContext<'_>,
+        fn_kind: rustc_hir::intravisit::FnKind<'tcx>,
+        fn_decl: &'tcx rustc_hir::FnDecl<'tcx>,
+        _body: &'tcx rustc_hir::Body<'tcx>,
+        _span: rustc_span::Span,
+        local_def_id: rustc_span::def_id::LocalDefId,
+    ) {
+        dbg!(local_def_id);
+        dbg!(fn_kind); // includes generics
+        dbg!(fn_decl); // hope for function arguments here.
     }
 }
