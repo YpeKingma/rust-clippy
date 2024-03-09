@@ -34,29 +34,28 @@ declare_clippy_lint! {
 
 #[derive(Default)]
 pub struct LifetimesBoundDoubleRef {
-    shown_generic: bool,
+    shown_generics: bool,
     shown_ty: bool,
 }
 
 impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
-impl EarlyLintPass for LifetimesBoundDoubleRef {}
-
 impl LateLintPass<'_> for LifetimesBoundDoubleRef {
-    fn check_generic_param(&mut self, _ctx: &LateContext<'_>, param: &rustc_hir::GenericParam<'_>) {
-        // if !self.shown_generic {
-        dbg!(&param);
-        dbg!(&param.hir_id.local_id);
-        dbg!(&param.def_id);
-        dbg!(&param.kind);
-        self.shown_generic = true;
-        // }
-    }
-
     fn check_ty(&mut self, _: &LateContext<'_>, ty: &'_ rustc_hir::Ty<'_>) {
         if !self.shown_ty {
-            dbg!(&ty);
+            dbg!(ty);
             self.shown_ty = true;
         }
+    }
+
+    fn check_generics<'tcx>(&mut self, _: &LateContext<'_>, gnrcs: &'tcx rustc_hir::Generics<'tcx>) {
+        if !self.shown_generics {
+            dbg!(gnrcs);
+            self.shown_generics = true;
+        }
+        // dbg!(&param);
+        // dbg!(&param.hir_id.local_id);
+        // dbg!(&param.def_id);
+        // dbg!(&param.kind);
     }
 }
