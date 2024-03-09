@@ -44,13 +44,13 @@ impl EarlyLintPass for LifetimesBoundDoubleRef {}
 
 impl LateLintPass<'_> for LifetimesBoundDoubleRef {
     fn check_generic_param(&mut self, _ctx: &LateContext<'_>, param: &rustc_hir::GenericParam<'_>) {
-        if !self.shown_generic {
-            dbg!(&param);
-            dbg!(&param.hir_id.local_id);
-            dbg!(&param.def_id);
-            dbg!(&param.kind);
-            self.shown_generic = true;
-        }
+        // if !self.shown_generic {
+        dbg!(&param);
+        dbg!(&param.hir_id.local_id);
+        dbg!(&param.def_id);
+        dbg!(&param.kind);
+        self.shown_generic = true;
+        // }
     }
 
     fn check_ty(&mut self, _: &LateContext<'_>, ty: &'_ rustc_hir::Ty<'_>) {
