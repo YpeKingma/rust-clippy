@@ -1,3 +1,4 @@
+use rustc_hir::intravisit::FnKind;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
 
@@ -33,32 +34,11 @@ declare_clippy_lint! {
 }
 
 #[derive(Default)]
-pub struct LifetimesBoundDoubleRef {
-    shown_generics: bool,
-    shown_ty: bool,
-}
+pub struct LifetimesBoundDoubleRef {}
 
 impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
 impl LateLintPass<'_> for LifetimesBoundDoubleRef {
-    fn check_ty(&mut self, _: &LateContext<'_>, ty: &'_ rustc_hir::Ty<'_>) {
-        if !self.shown_ty {
-            dbg!(ty);
-            self.shown_ty = true;
-        }
-    }
-
-    fn check_generics<'tcx>(&mut self, _: &LateContext<'_>, gnrcs: &'tcx rustc_hir::Generics<'tcx>) {
-        if !self.shown_generics {
-            dbg!(gnrcs);
-            self.shown_generics = true;
-        }
-        // dbg!(&param);
-        // dbg!(&param.hir_id.local_id);
-        // dbg!(&param.def_id);
-        // dbg!(&param.kind);
-    }
-
     fn check_fn<'tcx>(
         &mut self,
         _ctx: &LateContext<'_>,
@@ -70,6 +50,14 @@ impl LateLintPass<'_> for LifetimesBoundDoubleRef {
     ) {
         dbg!(local_def_id);
         dbg!(fn_kind); // includes generics
-        dbg!(fn_decl); // hope for function arguments here.
+        let FnKind::ItemFn(ident, generics, _fn_header) = fn_kind else {
+            return; // 
+        };
+        dbg!(ident);
+        // collect predicate bounds on lifetime pairs
+        for predicate in generics.predicates {
+            // etc.
+        }
+        dbg!(fn_decl); // function argument types as inputs
     }
 }
