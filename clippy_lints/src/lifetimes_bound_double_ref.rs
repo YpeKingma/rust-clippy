@@ -32,7 +32,11 @@ declare_clippy_lint! {
     "suggest to add lifetime bounds to double reference function arguments"
 }
 
-pub struct LifetimesBoundDoubleRef;
+#[derive(Default)]
+pub struct LifetimesBoundDoubleRef {
+    shown_generic: bool,
+    shown_ty: bool,
+}
 
 impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
@@ -40,7 +44,19 @@ impl EarlyLintPass for LifetimesBoundDoubleRef {}
 
 impl LateLintPass<'_> for LifetimesBoundDoubleRef {
     fn check_generic_param(&mut self, _ctx: &LateContext<'_>, param: &rustc_hir::GenericParam<'_>) {
-        // dbg!(ctx);
-        dbg!(param);
+        if !self.shown_generic {
+            dbg!(&param);
+            dbg!(&param.hir_id.local_id);
+            dbg!(&param.def_id);
+            dbg!(&param.kind);
+            self.shown_generic = true;
+        }
+    }
+
+    fn check_ty(&mut self, _: &LateContext<'_>, ty: &'_ rustc_hir::Ty<'_>) {
+        if !self.shown_ty {
+            dbg!(&ty);
+            self.shown_ty = true;
+        }
     }
 }
