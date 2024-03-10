@@ -88,9 +88,9 @@ declare_clippy_lint! {
 }
 
 #[derive(Default)]
-pub struct LifetimesBoundDoubleRef {}
+pub struct LifetimesBoundNestedRef {}
 
-impl_lint_pass!(LifetimesBoundDoubleRef => [
+impl_lint_pass!(LifetimesBoundNestedRef => [
     ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
     REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
 ]);
@@ -121,7 +121,7 @@ impl<'a> BoundLifetimePair<'a> {
     }
 }
 
-impl<'tcx> LateLintPass<'tcx> for LifetimesBoundDoubleRef {
+impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     fn check_fn<'tcx2>(
         &mut self,
         ctx: &LateContext<'tcx2>,
@@ -206,7 +206,7 @@ fn collect_declared_bounds<'a>(where_predicate: WherePredicate<'a>) -> Vec<Bound
 
 fn collect_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> Vec<BoundLifetimePair<'a>> {
     let mut implied_bounds = Vec::new();
-    // collect only from types with top level references
+    // collect only from top level reference
     let TyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
         return implied_bounds;
     };
