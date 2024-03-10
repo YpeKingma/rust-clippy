@@ -35,10 +35,39 @@ declare_clippy_lint! {
     "suggest to add lifetime bounds to double reference function arguments"
 }
 
+declare_clippy_lint! {
+    /// ### What it does
+    /// Checks function arguments with a double reference type with lifetimes,
+    /// and suggests to remove generic lifetime bounds implied these lifetimes.
+    /// This may become necessary after the current rustc compiler version 1.76.0
+    /// has been fixed to deal correctly with implied lifetime bounds.
+    ///
+    /// ### Why is this bad?
+    /// Such generic lifetime bounds are superfluous.
+    ///
+    /// ### Known problems
+    /// The suggested lifetime removals should only be done after the compiler is fixed.
+    ///
+    /// ### Example, the val_a argument implies a lifetimes bound:
+    /// ```no_run
+    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// ```
+    /// Use instead:
+    /// ```no_run
+    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// ```
+
+    #[clippy::version = "1.78.0"]
+    pub REMOVE_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
+    nursery,
+    "suggest to remove lifetime bounds implied by double reference function arguments"
+}
+
 #[derive(Default)]
 pub struct LifetimesBoundDoubleRef {}
 
-impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
+impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
+    REMOVE_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
 #[derive(Debug)]
 struct BoundLifetimePair<'a> {
@@ -96,16 +125,30 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundDoubleRef {
             implied_bounds.extend(collect_double_ref_implied_bounds(ret_ty));
         }
 
-        let declared_bounds = declared_bounds;
         let implied_bounds = implied_bounds;
 
-        for implied_bound in implied_bounds {
-            if !declared_bounds.contains(&implied_bound) {
+        for implied_bound in &implied_bounds {
+            if !declared_bounds.contains(implied_bound) {
                 let msg = format!(
                     "missing lifetime bound declation: {}",
                     implied_bound.as_declared_bound()
                 );
                 span_lint(ctx, ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG, generics.span, &msg);
+            }
+        }
+
+        for declared_bound in &declared_bounds {
+            if implied_bounds.contains(declared_bound) {
+                let msg = format!(
+                    "declared lifetime bound is implied: {}",
+                    declared_bound.as_declared_bound()
+                );
+                span_lint(
+                    ctx,
+                    REMOVE_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG,
+                    generics.span,
+                    &msg,
+                );
             }
         }
     }

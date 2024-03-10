@@ -261,6 +261,7 @@ pub(crate) static LINTS: &[&crate::LintInfo] = &[
     crate::lifetimes::EXTRA_UNUSED_LIFETIMES_INFO,
     crate::lifetimes::NEEDLESS_LIFETIMES_INFO,
     crate::lifetimes_bound_double_ref::ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG_INFO,
+    crate::lifetimes_bound_double_ref::REMOVE_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG_INFO,
     crate::lines_filter_map_ok::LINES_FILTER_MAP_OK_INFO,
     crate::literal_representation::DECIMAL_LITERAL_REPRESENTATION_INFO,
     crate::literal_representation::INCONSISTENT_DIGIT_GROUPING_INFO,
