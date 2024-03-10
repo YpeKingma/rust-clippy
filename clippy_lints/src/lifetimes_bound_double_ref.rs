@@ -1,7 +1,9 @@
+use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{GenericBound, LifetimeName, TyKind, WherePredicate};
+use rustc_hir::{GenericBound, LifetimeName, Ty, TyKind, WherePredicate};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
+use rustc_span::Span;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -19,13 +21,13 @@ declare_clippy_lint! {
     /// ### Known problems
     /// It is not known whether this covers all cases in issue 25860.
     ///
-    /// ### Example
+    /// ### Example, the val_a argument implies a lifetimes bound:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b, T>(_val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
     /// Use instead:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(_val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
 
     #[clippy::version = "1.78.0"]
@@ -39,10 +41,15 @@ pub struct LifetimesBoundDoubleRef {}
 
 impl_lint_pass!(LifetimesBoundDoubleRef => [ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG]);
 
+#[derive(Debug, PartialEq)]
+struct BoundLifetimePair {
+    long_lifetime_name: LifetimeName,
+    outlived_lifetime_name: LifetimeName,
+}
 impl LateLintPass<'_> for LifetimesBoundDoubleRef {
     fn check_fn<'tcx>(
         &mut self,
-        _ctx: &LateContext<'_>,
+        ctx: &LateContext<'_>,
         fn_kind: rustc_hir::intravisit::FnKind<'tcx>,
         fn_decl: &'tcx rustc_hir::FnDecl<'tcx>,
         _body: &'tcx rustc_hir::Body<'tcx>,
@@ -55,54 +62,66 @@ impl LateLintPass<'_> for LifetimesBoundDoubleRef {
         if generics.predicates.is_empty() && fn_decl.inputs.is_empty() {
             return;
         }
-        #[derive(Debug)]
-        struct BoundLifetimePair {
-            long_lifetime_name: LifetimeName,
-            outlived_lifetime_name: LifetimeName,
-        }
-        let mut declared_bounds = Vec::<BoundLifetimePair>::new();
-        let mut implied_bounds = Vec::<BoundLifetimePair>::new();
         // collect declared predicate bounds on lifetime pairs
-        for predicate in generics.predicates {
-            match predicate {
-                WherePredicate::BoundPredicate(_) | WherePredicate::EqPredicate(_) => {
-                    continue;
-                },
-                WherePredicate::RegionPredicate(where_region_predicate) => {
-                    // ignore where_region_predicate.in_where_clause, both cases ok.
-                    for generic_bound in where_region_predicate.bounds {
-                        let GenericBound::Outlives(outlived_lifetime) = generic_bound else {
-                            continue;
-                        };
-                        let declared_bound_lifetime_pair = BoundLifetimePair {
-                            long_lifetime_name: where_region_predicate.lifetime.res,
-                            outlived_lifetime_name: outlived_lifetime.res,
-                        };
-                        declared_bounds.push(declared_bound_lifetime_pair);
-                    }
-                },
-            }
+        let mut declared_bounds = Vec::<BoundLifetimePair>::new();
+        for where_predicate in generics.predicates {
+            collect_declared_bounds(*where_predicate, &mut declared_bounds)
         }
-
-        // collect double references with lifetimes from input arguments
+        // collect bounds implied by double references with lifetimes in arguments
+        let mut implied_bounds = Vec::<BoundLifetimePair>::new();
         for input_ty in fn_decl.inputs {
-            let TyKind::Ref(mut lifetime, mut mut_ty) = input_ty.kind else {
-                dbg!("no lifetime for:");
-                dbg!(input_ty.kind);
-                continue;
-            };
-            while let TyKind::Ref(nested_lifetime, next_mut_ty) = mut_ty.ty.kind {
-                let implied_bound_lifetime_pair = BoundLifetimePair {
-                    long_lifetime_name: nested_lifetime.res,
-                    outlived_lifetime_name: lifetime.res,
-                };
-                implied_bounds.push(implied_bound_lifetime_pair);
+            collect_double_ref_implied_bounds(input_ty, &mut implied_bounds);
+        }
+        // and for function return type
+        if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
+            collect_double_ref_implied_bounds(ret_ty, &mut implied_bounds);
+        }
 
-                mut_ty = next_mut_ty;
-                lifetime = nested_lifetime;
+        for implied_bound in implied_bounds {
+            if !declared_bounds.contains(&implied_bound) {
+                dbg!(&implied_bound);
+                // get the span of the function declaration without the body.
+                let sp = Span::default();
+                let msg = "missing lifetime bound declation";
+                span_lint(ctx, ADD_REDUNDANT_LIFETIMES_BOUND_DOUBLE_REF_ARG, sp, msg);
             }
         }
-        dbg!(&declared_bounds);
-        dbg!(&implied_bounds);
+    }
+}
+
+fn collect_declared_bounds(where_predicate: WherePredicate<'_>, declared_bounds: &mut Vec<BoundLifetimePair>) {
+    match where_predicate {
+        WherePredicate::BoundPredicate(_) | WherePredicate::EqPredicate(_) => {
+            return;
+        },
+        WherePredicate::RegionPredicate(where_region_predicate) => {
+            for generic_bound in where_region_predicate.bounds {
+                let GenericBound::Outlives(outlived_lifetime) = generic_bound else {
+                    continue;
+                };
+                let declared_bound_lifetime_pair = BoundLifetimePair {
+                    long_lifetime_name: where_region_predicate.lifetime.res,
+                    outlived_lifetime_name: outlived_lifetime.res,
+                };
+                declared_bounds.push(declared_bound_lifetime_pair);
+            }
+        },
+    }
+}
+
+fn collect_double_ref_implied_bounds(ty: &Ty<'_>, implied_bounds: &mut Vec<BoundLifetimePair>) {
+    // collect only from types with a top level reference
+    let TyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
+        return;
+    };
+    while let TyKind::Ref(nested_lifetime, nested_mut_ty) = mut_ty.ty.kind {
+        let implied_bound_lifetime_pair = BoundLifetimePair {
+            long_lifetime_name: nested_lifetime.res,
+            outlived_lifetime_name: lifetime.res,
+        };
+        implied_bounds.push(implied_bound_lifetime_pair);
+
+        mut_ty = nested_mut_ty;
+        lifetime = nested_lifetime;
     }
 }
