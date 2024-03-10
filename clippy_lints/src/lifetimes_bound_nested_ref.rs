@@ -140,16 +140,16 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect declared predicate bounds on lifetime pairs
         let mut declared_bounds = Vec::<BoundLifetimePair<'_>>::new();
         for where_predicate in generics.predicates {
-            declared_bounds.extend(collect_declared_bounds(*where_predicate));
+            declared_bounds.extend(get_declared_bounds(*where_predicate));
         }
         // collect bounds implied by nested references with lifetimes in arguments
         let mut implied_bounds = Vec::<BoundLifetimePair<'_>>::new();
         for input_ty in fn_decl.inputs {
-            implied_bounds.extend(collect_nested_ref_implied_bounds(input_ty));
+            implied_bounds.extend(get_nested_ref_implied_bounds(input_ty));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
-            implied_bounds.extend(collect_nested_ref_implied_bounds(ret_ty));
+            implied_bounds.extend(get_nested_ref_implied_bounds(ret_ty));
         }
 
         let implied_bounds = implied_bounds;
@@ -184,7 +184,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     }
 }
 
-fn collect_declared_bounds<'a>(where_predicate: WherePredicate<'a>) -> Vec<BoundLifetimePair<'a>> {
+fn get_declared_bounds<'a>(where_predicate: WherePredicate<'a>) -> Vec<BoundLifetimePair<'a>> {
     let mut declared_bounds = Vec::new();
     match where_predicate {
         WherePredicate::BoundPredicate(_) | WherePredicate::EqPredicate(_) => {},
@@ -204,7 +204,7 @@ fn collect_declared_bounds<'a>(where_predicate: WherePredicate<'a>) -> Vec<Bound
     declared_bounds
 }
 
-fn collect_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> Vec<BoundLifetimePair<'a>> {
+fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> Vec<BoundLifetimePair<'a>> {
     let mut implied_bounds = Vec::new();
     // collect only from top level reference
     let TyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
