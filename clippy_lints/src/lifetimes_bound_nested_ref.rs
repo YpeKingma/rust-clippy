@@ -87,8 +87,7 @@ declare_clippy_lint! {
     "suggest to remove generic lifetime bounds implied by nested reference function arguments"
 }
 
-#[derive(Default)]
-pub struct LifetimesBoundNestedRef {}
+pub struct LifetimesBoundNestedRef;
 
 impl_lint_pass!(LifetimesBoundNestedRef => [
     ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
