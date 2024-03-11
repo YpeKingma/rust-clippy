@@ -1,0 +1,20 @@
+error: missing lifetime bound declation: 'lftb: 'lfta
+  --> tests/ui/lifetimes_bound_nested_ref.rs:5:29
+   |
+LL | pub fn lifetime_translator_1<'lfta, 'lftb, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
+   |                             ^^^^^^^^^^^^^^^^^
+   |
+   = note: `-D clippy::add-redundant-lifetimes-bound-nested-ref-arg` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::add_redundant_lifetimes_bound_nested_ref_arg)]`
+
+error: declared lifetime bound is implied: 'lftb: 'lfta
+  --> tests/ui/lifetimes_bound_nested_ref.rs:10:29
+   |
+LL | pub fn lifetime_translator_2<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
+   |                             ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `-D clippy::remove-redundant-lifetimes-bound-nested-ref-arg` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::remove_redundant_lifetimes_bound_nested_ref_arg)]`
+
+error: aborting due to 2 previous errors
+
