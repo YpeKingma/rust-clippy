@@ -181,24 +181,22 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         }
     }
 
-    fn check_item<'tcx2>(&mut self, _ctx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
-        if let ItemKind::Impl(impl_item) = item.kind {
-            if impl_item.generics.params.iter().any(|p| {
-                if let GenericParamKind::Lifetime { .. } = p.kind {
-                    dbg!(p.kind);
-                    true
-                } else {
-                    false
-                }
-            }) {
-                dbg!("check_item with generic lifetime parameter", impl_item);
+    fn check_item_post<'tcx2>(&mut self, _ctx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
+        let ItemKind::Impl(impl_item) = item.kind else {
+            return;
+        };
+        if !impl_item.generics.params.iter().any(|p| {
+            if let GenericParamKind::Lifetime { .. } = p.kind {
+                dbg!(p.kind);
+                true
+            } else {
+                false
             }
+        }) {
+            return;
         }
+        dbg!("impl_item with generic lifetime parameter", impl_item);
     }
-
-    // fn check_item_post<'tcx2>(&mut self, _ctx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
-    //     dbg!("check_item_post", item);
-    // }
 }
 
 fn get_declared_bounds<'a>(where_predicate: WherePredicate<'a>) -> Vec<BoundLifetimePair<'a>> {
