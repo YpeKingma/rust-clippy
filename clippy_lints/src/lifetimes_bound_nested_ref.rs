@@ -1,5 +1,5 @@
 /// Lints to help dealing with unsoundness due to a compiler bug described here:
-/// 
+///
 /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
 ///
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
