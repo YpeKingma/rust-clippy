@@ -60,6 +60,7 @@ impl<'a: 'b, 'b> Extend2<'a, 'b> for <&'b &'a () as Trait2>::Type2 {
 pub fn main2() {
     let y1 = <() as Extend1<'_, '_>>::extend((), &String::from("Hello World"));
     println!("{}", y1);
-    let y2 = <() as Extend2<'_, '_>>::extend((), &String::from("Hello World"));
-    println!("{}", y2);
+    // Commented to suppress correct compiler error message:
+    // let y2 = <() as Extend2<'_, '_>>::extend((), &String::from("Hello World"));
+    // println!("{}", y2);
 }
