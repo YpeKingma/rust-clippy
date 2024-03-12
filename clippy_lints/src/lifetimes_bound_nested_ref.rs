@@ -1,8 +1,9 @@
-/// Lints to help dealing with unsoundness due to a compiler bug as described here:
+/// Lints to help dealing with unsoundness due to a compiler bug described here:
+/// 
 /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
 ///
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
-/// manually adding generic lifetime bound that is implied by a nested reference:
+/// manually adding a generic lifetime bound that is implied by a nested reference:
 ///
 ///     https://github.com/rust-lang/rust/issues/25860
 ///     Implied bounds on nested references + variance = soundness hole
@@ -19,7 +20,7 @@
 ///
 /// There are also reverse lints that suggest to remove lifetime bounds
 /// that are implied by nested references. These lints are intended to be used only
-/// after the above compiler bugs have been fixed.
+/// after the compiler handles these lifetime bounds correctly.
 ///
 /// All lints here are in the nursery category.
 use clippy_utils::diagnostics::span_lint;
@@ -30,8 +31,8 @@ use rustc_session::impl_lint_pass;
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks function arguments with a nested reference type with lifetimes,
-    /// and suggests to add a generic bound on these lifetimes.
+    /// Checks function arguments and return values that have a nested reference type with lifetimes,
+    /// and suggests to add the implied generic lifetime bounds.
     /// Adding a lifetimes bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
     ///
@@ -52,25 +53,23 @@ declare_clippy_lint! {
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
     #[clippy::version = "1.78.0"]
-    pub ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
+    pub ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
     nursery,
-    "suggest to add generic lifetime bounds for nested reference function arguments"
+    "suggest to add generic lifetime bounds implied by nested references in function arguments and return value"
 }
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks function arguments with a nested reference type with lifetimes,
-    /// and suggests to remove declared generic lifetime bounds implied
-    /// by these argument lifetimes.
-    /// This should only be done after the current rustc compiler version 1.76.0
-    /// has been fixed to deal correctly with implied lifetime bounds.
+    /// Checks function arguments and return values that have a nested reference type with lifetimes,
+    /// and suggests to remove generic lifetime bounds that are implied.
     ///
     /// ### Why is this bad?
-    /// Such generic lifetime bounds are superfluous.
+    /// Such generic lifetime bounds are redundant.
     ///
     /// ### Known problems
-    /// The suggested removals of generic lifetime bounds
-    /// should only be done after the compiler is fixed.
+    /// Removing redundant lifetime bounds
+    /// should only be done after the compiler
+    /// has been fixed to deal correctly with implied lifetime bounds.
     ///
     /// ### Example, the val_a argument implies a lifetimes bound:
     /// ```no_run
@@ -82,16 +81,16 @@ declare_clippy_lint! {
     /// ```
 
     #[clippy::version = "1.78.0"]
-    pub REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
+    pub REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
     nursery,
-    "suggest to remove generic lifetime bounds implied by nested reference function arguments"
+    "suggest to remove generic lifetime bounds implied by nested references in function arguments and return value"
 }
 
 pub struct LifetimesBoundNestedRef;
 
 impl_lint_pass!(LifetimesBoundNestedRef => [
-    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
-    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
+    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
 ]);
 
 #[derive(Debug)]
@@ -157,7 +156,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             if !declared_bounds.contains(implied_bound) {
                 span_lint(
                     ctx,
-                    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
+                    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
                     generics.span,
                     &format!(
                         "missing lifetime bound declation: {}",
@@ -171,7 +170,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             if implied_bounds.contains(declared_bound) {
                 span_lint(
                     ctx,
-                    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_ARG,
+                    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
                     generics.span,
                     &format!(
                         "declared lifetime bound is implied: {}",

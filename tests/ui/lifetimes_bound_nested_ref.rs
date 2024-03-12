@@ -1,5 +1,5 @@
-#![warn(clippy::add_redundant_lifetimes_bound_nested_ref_arg)]
-#![warn(clippy::remove_redundant_lifetimes_bound_nested_ref_arg)]
+#![warn(clippy::add_redundant_lifetimes_bound_nested_ref_fn)]
+#![warn(clippy::remove_redundant_lifetimes_bound_nested_ref_fn)]
 
 // missing bound
 pub fn lifetime_translator_1<'lfta, 'lftb, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
