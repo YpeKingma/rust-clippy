@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+
 /// Lints to help dealing with unsoundness due to a compiler bug described here:
 ///
 /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
@@ -25,7 +28,7 @@
 /// All lints here are in the nursery category.
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{GenericBound, GenericParamKind, Item, ItemKind, Lifetime, Ty, TyKind, WherePredicate};
+use rustc_hir::{GenericBound, Lifetime, Ty, TyKind, WherePredicate};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
 
@@ -99,10 +102,23 @@ struct BoundLifetimePair<'a> {
     outlived_lifetime: &'a Lifetime,
 }
 
+impl<'a> BoundLifetimePair<'a> {
+    fn as_bound_declaration(&'a self) -> String {
+        format!(
+            "{}: {}",
+            self.long_lifetime.ident.name, self.outlived_lifetime.ident.name,
+        )
+    }
+}
+
 impl<'a> PartialEq for BoundLifetimePair<'a> {
     fn eq(&self, other: &Self) -> bool {
-        self.long_lifetime.res.eq(&other.long_lifetime.res)
-            && self.outlived_lifetime.res.eq(&other.outlived_lifetime.res)
+        self.long_lifetime.ident.name.eq(&other.long_lifetime.ident.name)
+            && self
+                .outlived_lifetime
+                .ident
+                .name
+                .eq(&other.outlived_lifetime.ident.name)
     }
 
     fn ne(&self, other: &Self) -> bool {
@@ -110,12 +126,33 @@ impl<'a> PartialEq for BoundLifetimePair<'a> {
     }
 }
 
-impl<'a> BoundLifetimePair<'a> {
-    fn as_bound_declaration(&'a self) -> String {
-        format!(
-            "{}: {}",
-            self.long_lifetime.ident.name, self.outlived_lifetime.ident.name,
-        )
+impl<'a> Eq for BoundLifetimePair<'a> {}
+
+impl<'a> PartialOrd for BoundLifetimePair<'a> {
+    fn partial_cmp(&self, other: &BoundLifetimePair<'a>) -> Option<Ordering> {
+        self.long_lifetime
+            .ident
+            .name
+            .partial_cmp(&other.long_lifetime.ident.name)
+            .or(self
+                .outlived_lifetime
+                .ident
+                .name
+                .partial_cmp(&other.outlived_lifetime.ident.name))
+    }
+}
+
+impl<'a> Ord for BoundLifetimePair<'a> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.long_lifetime.ident.name.cmp(&other.long_lifetime.ident.name) {
+            Ordering::Less => Ordering::Less,
+            Ordering::Greater => Ordering::Greater,
+            Ordering::Equal => self
+                .outlived_lifetime
+                .ident
+                .name
+                .cmp(&other.outlived_lifetime.ident.name),
+        }
     }
 }
 
@@ -136,18 +173,18 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             return;
         }
         // collect declared predicate bounds on lifetime pairs
-        let mut declared_bounds = Vec::<BoundLifetimePair<'_>>::new();
+        let mut declared_bounds = BTreeSet::<BoundLifetimePair<'_>>::new();
         for where_predicate in generics.predicates {
-            declared_bounds.extend(get_declared_bounds(where_predicate));
+            declared_bounds.append(&mut get_declared_bounds(where_predicate));
         }
         // collect bounds implied by nested references with lifetimes in arguments
-        let mut implied_bounds = Vec::<BoundLifetimePair<'_>>::new();
+        let mut implied_bounds = BTreeSet::<BoundLifetimePair<'_>>::new();
         for input_ty in fn_decl.inputs {
-            implied_bounds.extend(get_nested_ref_implied_bounds(input_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds(input_ty));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
-            implied_bounds.extend(get_nested_ref_implied_bounds(ret_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds(ret_ty));
         }
 
         let implied_bounds = implied_bounds;
@@ -181,26 +218,27 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         }
     }
 
-    fn check_item_post<'tcx2>(&mut self, _ctx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
-        let ItemKind::Impl(impl_item) = item.kind else {
-            return;
-        };
-        if !impl_item.generics.params.iter().any(|p| {
-            if let GenericParamKind::Lifetime { .. } = p.kind {
-                dbg!(p.kind);
-                true
-            } else {
-                false
-            }
-        }) {
-            return;
-        }
-        dbg!("impl_item with generic lifetime parameter", impl_item);
-    }
+    // For issue 100051:
+    // fn check_item_post<'tcx2>(&mut self, _ctx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
+    //     let ItemKind::Impl(impl_item) = item.kind else {
+    //         return;
+    //     };
+    //     if !impl_item.generics.params.iter().any(|p| {
+    //         if let GenericParamKind::Lifetime { .. } = p.kind {
+    //             dbg!(p.kind);
+    //             true
+    //         } else {
+    //             false
+    //         }
+    //     }) {
+    //         return;
+    //     }
+    //     dbg!("impl_item with generic lifetime parameter", impl_item);
+    // }
 }
 
-fn get_declared_bounds<'a>(where_predicate: &WherePredicate<'a>) -> Vec<BoundLifetimePair<'a>> {
-    let mut declared_bounds = Vec::new();
+fn get_declared_bounds<'a>(where_predicate: &WherePredicate<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
+    let mut declared_bounds = BTreeSet::new();
     match where_predicate {
         WherePredicate::BoundPredicate(_) | WherePredicate::EqPredicate(_) => {},
         WherePredicate::RegionPredicate(where_region_predicate) => {
@@ -212,15 +250,15 @@ fn get_declared_bounds<'a>(where_predicate: &WherePredicate<'a>) -> Vec<BoundLif
                     long_lifetime: where_region_predicate.lifetime,
                     outlived_lifetime: outlived_lifetime,
                 };
-                declared_bounds.push(declared_bound_lifetime_pair);
+                declared_bounds.insert(declared_bound_lifetime_pair);
             }
         },
     }
     declared_bounds
 }
 
-fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> Vec<BoundLifetimePair<'a>> {
-    let mut implied_bounds = Vec::new();
+fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
+    let mut implied_bounds = BTreeSet::new();
     // collect only from top level reference
     let TyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
         return implied_bounds;
@@ -230,7 +268,7 @@ fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> Vec<BoundLifetimePair<'a>> 
             long_lifetime: nested_lifetime,
             outlived_lifetime: lifetime,
         };
-        implied_bounds.push(implied_bound_lifetime_pair);
+        implied_bounds.insert(implied_bound_lifetime_pair);
 
         mut_ty = nested_mut_ty;
         lifetime = nested_lifetime;
