@@ -72,7 +72,8 @@ declare_clippy_lint! {
     /// should only be done after the compiler
     /// has been fixed to deal correctly with implied lifetime bounds.
     ///
-    /// ### Example, the val_a argument implies a lifetimes bound:
+    /// ### Example
+    /// The `val_a` argument implies a lifetimes bound:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
