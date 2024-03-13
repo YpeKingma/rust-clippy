@@ -44,7 +44,8 @@ declare_clippy_lint! {
     /// ### Known problems
     /// It is not known whether this covers all cases in issue 25860.
     ///
-    /// ### Example, the val_a argument implies a lifetimes bound:
+    /// ### Example
+    /// The `val_a` argument implies a lifetimes bound:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
