@@ -1,6 +1,7 @@
 #![warn(clippy::add_redundant_lifetimes_bound_nested_ref_fn)]
 #![warn(clippy::remove_redundant_lifetimes_bound_nested_ref_fn)]
 
+// Code from cve-rs from crates.io, https://github.com/rust-lang/rust/issues/25860
 // missing bound
 pub fn lifetime_translator_1<'lfta, 'lftb, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
     val_a
