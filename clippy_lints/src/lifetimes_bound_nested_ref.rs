@@ -53,7 +53,7 @@ declare_clippy_lint! {
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
     /// ```
     #[clippy::version = "1.78.0"]
-    pub ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+    pub IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
     nursery,
     "suggest to add generic lifetime bounds implied by nested references in function arguments and return value"
 }
@@ -81,7 +81,7 @@ declare_clippy_lint! {
     /// ```
 
     #[clippy::version = "1.78.0"]
-    pub REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+    pub EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
     nursery,
     "suggest to remove generic lifetime bounds implied by nested references in function arguments and return value"
 }
@@ -89,8 +89,8 @@ declare_clippy_lint! {
 pub struct LifetimesBoundNestedRef;
 
 impl_lint_pass!(LifetimesBoundNestedRef => [
-    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
-    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+    IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
+    EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
 ]);
 
 #[derive(Debug)]
@@ -157,7 +157,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             if !declared_bounds.contains(implied_bound) {
                 span_lint(
                     ctx,
-                    ADD_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+                    IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
                     generics.span,
                     &format!(
                         "missing lifetime bound declation: {}",
@@ -171,7 +171,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             if implied_bounds.contains(declared_bound) {
                 span_lint(
                     ctx,
-                    REMOVE_REDUNDANT_LIFETIMES_BOUND_NESTED_REF_FN,
+                    EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
                     generics.span,
                     &format!(
                         "declared lifetime bound is implied: {}",
