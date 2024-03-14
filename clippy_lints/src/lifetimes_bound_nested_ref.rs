@@ -164,7 +164,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         fn_decl: &'tcx2 rustc_hir::FnDecl<'tcx2>,
         _body: &'tcx2 rustc_hir::Body<'tcx2>,
         _span: rustc_span::Span,
-        _local_def_id: rustc_span::def_id::LocalDefId,
+        local_def_id: rustc_span::def_id::LocalDefId,
     ) {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
@@ -186,6 +186,9 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
             implied_bounds.append(&mut get_nested_ref_implied_bounds(ret_ty));
         }
+
+        let fn_sig = ctx.tcx.fn_sig(local_def_id);
+        dbg!(fn_sig);
 
         let implied_bounds = implied_bounds;
 
