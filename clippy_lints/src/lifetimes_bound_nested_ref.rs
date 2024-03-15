@@ -31,9 +31,10 @@ use rustc_hir::intravisit::FnKind;
 use rustc_hir::{GenericBound, Ty as HirTy, TyKind as HirTyKind, WherePredicate};
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_middle::ty::ty_kind::TyKind as MiddleTyKind;
+use rustc_middle::ty::ty_kind::TyKind;
 use rustc_middle::ty::{BoundRegionKind, RegionKind, Ty};
 use rustc_session::impl_lint_pass;
+use rustc_span::Symbol;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -106,6 +107,12 @@ struct BoundLifetimePair {
 }
 
 impl BoundLifetimePair {
+    fn new(long_lifetime_sym: &Symbol, outlived_lifetime_sym: &Symbol) -> Self {
+        BoundLifetimePair {
+            long_lifetime_name: long_lifetime_sym.to_ident_string(),
+            outlived_lifetime_name: outlived_lifetime_sym.to_ident_string(),
+        }
+    }
     fn as_bound_declaration(&self) -> String {
         format!("{}: {}", self.long_lifetime_name, self.outlived_lifetime_name,)
     }
@@ -166,17 +173,15 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect bounds implied by nested references with lifetimes in arguments
         let mut implied_bounds = BTreeSet::<BoundLifetimePair>::new();
         for input_ty in fn_decl.inputs {
-            eprintln!("input");
-            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(input_ty));
+            // implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(input_ty));
             implied_bounds.append(&mut get_nested_ref_implied_bounds(
                 hir_ty_to_ty(ctx.tcx, input_ty),
                 None,
             ));
         }
         // and for function return type
-        eprintln!("output");
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(ret_ty));
+            // implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(ret_ty));
             implied_bounds.append(&mut get_nested_ref_implied_bounds(hir_ty_to_ty(ctx.tcx, ret_ty), None));
         }
 
@@ -251,10 +256,10 @@ fn get_declared_bounds(where_predicate: &WherePredicate<'_>) -> BTreeSet<BoundLi
                 let GenericBound::Outlives(outlived_lifetime) = generic_bound else {
                     continue;
                 };
-                let declared_bound_lifetime_pair = BoundLifetimePair {
-                    long_lifetime_name: where_region_predicate.lifetime.ident.name.to_ident_string(),
-                    outlived_lifetime_name: outlived_lifetime.ident.name.to_ident_string(),
-                };
+                let declared_bound_lifetime_pair = BoundLifetimePair::new(
+                    &where_region_predicate.lifetime.ident.name,
+                    &outlived_lifetime.ident.name,
+                );
                 declared_bounds.insert(declared_bound_lifetime_pair);
             }
         },
@@ -269,10 +274,7 @@ fn get_nested_ref_implied_bounds_hir<'a>(ty: &HirTy<'a>) -> BTreeSet<BoundLifeti
         return implied_bounds;
     };
     while let HirTyKind::Ref(nested_lifetime, nested_mut_ty) = mut_ty.ty.kind {
-        let implied_bound_lifetime_pair = BoundLifetimePair {
-            long_lifetime_name: nested_lifetime.ident.name.to_ident_string(),
-            outlived_lifetime_name: lifetime.ident.name.to_ident_string(),
-        };
+        let implied_bound_lifetime_pair = BoundLifetimePair::new(&nested_lifetime.ident.name, &lifetime.ident.name);
         implied_bounds.insert(implied_bound_lifetime_pair);
 
         mut_ty = nested_mut_ty;
@@ -282,44 +284,38 @@ fn get_nested_ref_implied_bounds_hir<'a>(ty: &HirTy<'a>) -> BTreeSet<BoundLifeti
 }
 
 #[allow(rustc::usage_of_ty_tykind)]
-fn get_nested_ref_implied_bounds<'a>(
-    ty: Ty<'a>,
-    shorter_lifetime_name_opt: Option<String>,
-) -> BTreeSet<BoundLifetimePair> {
+fn get_nested_ref_implied_bounds<'a>(ty: Ty<'a>, outlived_lifetime_opt: Option<Symbol>) -> BTreeSet<BoundLifetimePair> {
     let mut implied_bounds = BTreeSet::new();
     // scan ty for a reference with a declared lifetime.
     // use the variants with GenericArgs and/or subtypes.
     match *ty.kind() {
-        MiddleTyKind::Adt(_adt_def, _generic_args) => {},
-        MiddleTyKind::Bound(_debruijn_index, _bound_ty) => {},
-        MiddleTyKind::Ref(region, ty, _mutability) => {
-            // TODO: the reference may be outlived and/or outliving.
-            dbg!(region);
+        TyKind::Adt(_adt_def, _generic_args) => {},
+        TyKind::Bound(_debruijn_index, _bound_ty) => {},
+        TyKind::Ref(region, referred_to_ty, _mutability) => {
+            // dbg!(region);
+            // dbg!(referred_to_ty); // contains the subtype
             if let RegionKind::ReBound(_debruijn_index, bound_region) = region.kind() {
-                if let BoundRegionKind::BrNamed(def_id, symbol) = bound_region.kind {
-                    dbg!(def_id);
-                    dbg!(symbol.as_str()); // has .as_str() use this to collect into BoundLifetimePair
-                    if let Some(shorter_lifetime_name) = shorter_lifetime_name_opt {
-                        let bound_lifetime_pair = BoundLifetimePair {
-                            long_lifetime_name: symbol.to_ident_string(),
-                            outlived_lifetime_name: shorter_lifetime_name.clone(),
-                        };
+                if let BoundRegionKind::BrNamed(def_id, long_lifetime) = bound_region.kind {
+                    // dbg!(def_id);
+                    if let Some(outlived_lifetime) = outlived_lifetime_opt {
+                        let bound_lifetime_pair = BoundLifetimePair::new(&long_lifetime, &outlived_lifetime);
+                        // dbg!(&bound_lifetime_pair);
                         implied_bounds.insert(bound_lifetime_pair);
                     }
+                    // long_lifetime can be outlived by subtype
+                    implied_bounds.append(&mut get_nested_ref_implied_bounds(referred_to_ty, Some(long_lifetime)));
                 }
             }
-            dbg!(ty); // contains the subtype
         },
-        MiddleTyKind::FnDef(_def_id, _generic_args) => {},
-        MiddleTyKind::Closure(_def_id, _generic_args) => {},
-        MiddleTyKind::CoroutineClosure(_def_id, _generic_args) => {},
-        MiddleTyKind::Coroutine(_def_id, _generic_args) => {},
-        MiddleTyKind::CoroutineWitness(_def_id, _generic_args) => {},
-        MiddleTyKind::Param(_param_ty) => {},
-        MiddleTyKind::Tuple(tys) => {
-            // TODO: the subtypes may contain outliving references
-            for ty in tys {
-                dbg!(ty);
+        TyKind::FnDef(_def_id, _generic_args) => {},
+        TyKind::Closure(_def_id, _generic_args) => {},
+        TyKind::CoroutineClosure(_def_id, _generic_args) => {},
+        TyKind::Coroutine(_def_id, _generic_args) => {},
+        TyKind::CoroutineWitness(_def_id, _generic_args) => {},
+        TyKind::Param(_param_ty) => {},
+        TyKind::Tuple(tuple_part_tys) => {
+            for tuple_part_ty in tuple_part_tys {
+                implied_bounds.append(&mut get_nested_ref_implied_bounds(tuple_part_ty, outlived_lifetime_opt));
             }
         },
         _ => {},
