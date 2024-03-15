@@ -29,6 +29,7 @@ use std::collections::BTreeSet;
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{GenericBound, Lifetime, Ty as HirTy, TyKind as HirTyKind, WherePredicate};
+use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind as MiddleTyKind;
 use rustc_middle::ty::Ty as MiddleTy;
@@ -166,7 +167,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         fn_decl: &'tcx2 rustc_hir::FnDecl<'tcx2>,
         _body: &'tcx2 rustc_hir::Body<'tcx2>,
         _span: rustc_span::Span,
-        local_def_id: rustc_span::def_id::LocalDefId,
+        _local_def_id: rustc_span::def_id::LocalDefId,
     ) {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
@@ -182,20 +183,27 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect bounds implied by nested references with lifetimes in arguments
         let mut implied_bounds = BTreeSet::<BoundLifetimePair<'_>>::new();
         for input_ty in fn_decl.inputs {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(input_ty));
+            // implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(input_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(&hir_ty_to_ty(
+                ctx.tcx, input_ty,
+            )));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(ret_ty));
+            // implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(ret_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(&hir_ty_to_ty(
+                ctx.tcx, ret_ty,
+            )));
         }
 
-        let fn_sig = ctx.tcx.fn_sig(local_def_id);
-        let inputs = fn_sig.skip_binder().inputs();
-        for input_ty in inputs.iter() {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(input_ty.skip_binder()));
-        }
-        let output = fn_sig.skip_binder().output();
-        implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(&output.skip_binder()));
+        // let fn_sig = ctx.tcx.fn_sig(local_def_id);
+        // let inputs = fn_sig.skip_binder().inputs();
+        // for input_ty in inputs.iter() {
+        //     let input_ty = input_ty.skip_binder();
+        //     implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(input_ty.skip_binder()));
+        // }
+        // let output = fn_sig.skip_binder().output();
+        // implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(&output.skip_binder()));
 
         // dbg!(generics.params);
         // dbg!(fn_decl.output);
@@ -289,19 +297,26 @@ fn get_nested_ref_implied_bounds_hir<'a>(ty: &HirTy<'a>) -> BTreeSet<BoundLifeti
     implied_bounds
 }
 
+#[allow(rustc::usage_of_ty_tykind)]
 fn get_nested_ref_implied_bounds_middle<'a>(ty: &MiddleTy<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
     let mut implied_bounds = BTreeSet::new();
     // scan ty for a reference with a declared lifetime.
-    // only match on the variants with GenericArgs
+    // use the variants with GenericArgs and/or subtypes.
     match *ty.kind() {
         MiddleTyKind::Adt(_adt_def, _generic_args) => {},
+        MiddleTyKind::Bound(_debruijn_index, _bound_ty) => {},
+        MiddleTyKind::Ref(_region, _ty, _mutability) => {
+            // TODO: the reference may be outlived and/or outliving.
+        },
         MiddleTyKind::FnDef(_def_id, _generic_args) => {},
         MiddleTyKind::Closure(_def_id, _generic_args) => {},
         MiddleTyKind::CoroutineClosure(_def_id, _generic_args) => {},
         MiddleTyKind::Coroutine(_def_id, _generic_args) => {},
         MiddleTyKind::CoroutineWitness(_def_id, _generic_args) => {},
         MiddleTyKind::Param(_param_ty) => {},
-        MiddleTyKind::Bound(_debruijn_index, _bound_ty) => {},
+        MiddleTyKind::Tuple(_tys) => {
+            // TODO: the subtypes may contain outliving references
+        },
         _ => {},
     }
     implied_bounds
