@@ -1,6 +1,3 @@
-use std::cmp::Ordering;
-use std::collections::BTreeSet;
-
 /// Lints to help dealing with unsoundness due to a compiler bug described here:
 ///
 /// https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md .
@@ -26,10 +23,15 @@ use std::collections::BTreeSet;
 /// after the compiler handles these lifetime bounds correctly.
 ///
 /// All lints here are in the nursery category.
+use std::cmp::Ordering;
+use std::collections::BTreeSet;
+
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{GenericBound, Lifetime, Ty, TyKind, WherePredicate};
+use rustc_hir::{GenericBound, Lifetime, Ty as HirTy, TyKind as HirTyKind, WherePredicate};
 use rustc_lint::{LateContext, LateLintPass};
+use rustc_middle::ty::ty_kind::TyKind as MiddleTyKind;
+use rustc_middle::ty::Ty as MiddleTy;
 use rustc_session::impl_lint_pass;
 
 declare_clippy_lint! {
@@ -180,15 +182,23 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect bounds implied by nested references with lifetimes in arguments
         let mut implied_bounds = BTreeSet::<BoundLifetimePair<'_>>::new();
         for input_ty in fn_decl.inputs {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds(input_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(input_ty));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_ty) = fn_decl.output {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds(ret_ty));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds_hir(ret_ty));
         }
 
         let fn_sig = ctx.tcx.fn_sig(local_def_id);
-        dbg!(fn_sig);
+        let inputs = fn_sig.skip_binder().inputs();
+        for input_ty in inputs.iter() {
+            implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(input_ty.skip_binder()));
+        }
+        let output = fn_sig.skip_binder().output();
+        implied_bounds.append(&mut get_nested_ref_implied_bounds_middle(&output.skip_binder()));
+
+        // dbg!(generics.params);
+        // dbg!(fn_decl.output);
 
         let implied_bounds = implied_bounds;
 
@@ -260,13 +270,13 @@ fn get_declared_bounds<'a>(where_predicate: &WherePredicate<'a>) -> BTreeSet<Bou
     declared_bounds
 }
 
-fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
+fn get_nested_ref_implied_bounds_hir<'a>(ty: &HirTy<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
     let mut implied_bounds = BTreeSet::new();
     // collect only from top level reference
-    let TyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
+    let HirTyKind::Ref(mut lifetime, mut mut_ty) = ty.kind else {
         return implied_bounds;
     };
-    while let TyKind::Ref(nested_lifetime, nested_mut_ty) = mut_ty.ty.kind {
+    while let HirTyKind::Ref(nested_lifetime, nested_mut_ty) = mut_ty.ty.kind {
         let implied_bound_lifetime_pair = BoundLifetimePair {
             long_lifetime: nested_lifetime,
             outlived_lifetime: lifetime,
@@ -275,6 +285,24 @@ fn get_nested_ref_implied_bounds<'a>(ty: &Ty<'a>) -> BTreeSet<BoundLifetimePair<
 
         mut_ty = nested_mut_ty;
         lifetime = nested_lifetime;
+    }
+    implied_bounds
+}
+
+fn get_nested_ref_implied_bounds_middle<'a>(ty: &MiddleTy<'a>) -> BTreeSet<BoundLifetimePair<'a>> {
+    let mut implied_bounds = BTreeSet::new();
+    // scan ty for a reference with a declared lifetime.
+    // only match on the variants with GenericArgs
+    match *ty.kind() {
+        MiddleTyKind::Adt(_adt_def, _generic_args) => {},
+        MiddleTyKind::FnDef(_def_id, _generic_args) => {},
+        MiddleTyKind::Closure(_def_id, _generic_args) => {},
+        MiddleTyKind::CoroutineClosure(_def_id, _generic_args) => {},
+        MiddleTyKind::Coroutine(_def_id, _generic_args) => {},
+        MiddleTyKind::CoroutineWitness(_def_id, _generic_args) => {},
+        MiddleTyKind::Param(_param_ty) => {},
+        MiddleTyKind::Bound(_debruijn_index, _bound_ty) => {},
+        _ => {},
     }
     implied_bounds
 }
