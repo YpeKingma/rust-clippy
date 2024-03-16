@@ -32,7 +32,7 @@ use rustc_hir::{GenericBound, Ty as HirTy, WherePredicate};
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
-use rustc_middle::ty::{BoundRegionKind, RegionKind, Ty};
+use rustc_middle::ty::{normalize_erasing_regions, BoundRegionKind, RegionKind, Ty};
 use rustc_session::impl_lint_pass;
 use rustc_span::Symbol;
 
@@ -282,6 +282,12 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
                     dbg!(early_param_region); // has def_id, index and name
                     // So: for lifetime_translator2 how to get from here to the missed part  &'lftb
                     // T?
+                },
+                RegionKind::ReErased => {
+                    // occurs after using normalize_erasing_regions, 
+                    // but there is no further info available from an erased region:
+                    // so try and use ty.normalize instead.
+                    dbg!("erased region", region);
                 },
                 _ => {
                     dbg!(region.kind());
