@@ -32,7 +32,7 @@ use rustc_hir::{GenericBound, Ty as HirTy, WherePredicate};
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
-use rustc_middle::ty::{normalize_erasing_regions, BoundRegionKind, RegionKind, Ty};
+use rustc_middle::ty::{BoundRegionKind, RegionKind, Ty};
 use rustc_session::impl_lint_pass;
 use rustc_span::Symbol;
 
@@ -177,16 +177,21 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let mut implied_bounds = BTreeSet::<BoundLftPair>::new();
         for input_hir_ty in fn_decl.inputs {
             dbg!("input");
-            let input_ty = hir_ty_to_normalized_erasing_regions_ty(ctx, input_hir_ty);
+            let input_ty = hir_ty_to_normalized_ty(ctx, input_hir_ty);
             let normalized_input_ty = ctx.tcx.normalize_erasing_regions(ctx.param_env, input_ty);
             implied_bounds.append(&mut get_nested_ref_implied_bounds(ctx, normalized_input_ty, None));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_hir_ty) = fn_decl.output {
             dbg!("output");
-            let output_ty = hir_ty_to_normalized_erasing_regions_ty(ctx, ret_hir_ty);
+            let output_ty = hir_ty_to_normalized_ty(ctx, ret_hir_ty);
             implied_bounds.append(&mut get_nested_ref_implied_bounds(ctx, output_ty, None));
         }
+
+        // let tck_res = ctx.typeck_results(); // will crash outside a body
+        // dbg!(tck_res); // has liberated_fn_sigs with: fn(&ReErased &ReErased T/#0, &ReErased T/#0) ->
+        // &ReErased T/#0 // perhaps  erased regions are not too late for this, not in case these
+        // still have their original info.
 
         for implied_bound in &implied_bounds {
             if !declared_bounds.contains(implied_bound) {
@@ -218,10 +223,8 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     }
 }
 
-fn hir_ty_to_normalized_erasing_regions_ty<'tcx2>(ctx: &LateContext<'tcx2>, hir_ty: &HirTy<'tcx2>) -> Ty<'tcx2> {
-    let ty = hir_ty_to_ty(ctx.tcx, hir_ty);
-    let normalized_ty = ctx.tcx.normalize_erasing_regions(ctx.param_env, ty);
-    normalized_ty
+fn hir_ty_to_normalized_ty<'tcx2>(ctx: &LateContext<'tcx2>, hir_ty: &HirTy<'tcx2>) -> Ty<'tcx2> {
+    hir_ty_to_ty(ctx.tcx, hir_ty)
 }
 
 fn get_declared_bounds(where_predicate: &WherePredicate<'_>) -> BTreeSet<BoundLftPair> {
@@ -278,15 +281,13 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
                 },
                 RegionKind::ReEarlyParam(early_param_region) => {
                     // For lifetime_translator2, in the arg type &'lfta &'lftb T this misses the part after &'lfta, why?
-                    // I would expect a RegionKind::ReBound instead of this RegionKind::ReEarlyParam.
-                    dbg!(early_param_region); // has def_id, index and name
+                    dbg!(early_param_region);
                     // So: for lifetime_translator2 how to get from here to the missed part  &'lftb
                     // T?
                 },
                 RegionKind::ReErased => {
-                    // occurs after using normalize_erasing_regions, 
-                    // but there is no further info available from an erased region:
-                    // so try and use ty.normalize instead.
+                    // occurs after using normalize_erasing_regions(),
+                    // but there seems to be no further info available from an erased region.
                     dbg!("erased region", region);
                 },
                 _ => {
