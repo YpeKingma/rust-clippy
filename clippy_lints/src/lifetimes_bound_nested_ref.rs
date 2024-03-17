@@ -226,8 +226,8 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
 }
 
 #[allow(rustc::usage_of_ty_tykind)]
-fn collect_nested_ref_implied_bounds<'a>(
-    ty: Ty<'a>,
+fn collect_nested_ref_implied_bounds(
+    ty: Ty<'_>,
     outlived_lft_sym_opt: Option<Symbol>,
     implied_bounds: &mut BTreeSet<BoundLftPair>,
 ) {
