@@ -50,11 +50,15 @@ declare_clippy_lint! {
     ///
     /// ### Example, the `val_a` argument implies a lifetimes bound:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
+    ///     val_b
+    /// }
     /// ```
     /// Use instead:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
+    ///     val_b
+    /// }
     /// ```
     #[clippy::version = "1.78.0"]
     pub IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
@@ -76,11 +80,15 @@ declare_clippy_lint! {
     ///
     /// ### Example, the `val_a` argument implies a lifetimes bound:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
+    ///     val_b
+    /// }
     /// ```
     /// Use instead:
     /// ```no_run
-    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {...}
+    /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
+    ///     val_b
+    /// }
     /// ```
 
     #[clippy::version = "1.78.0"]
