@@ -104,7 +104,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         &mut self,
         cx: &LateContext<'tcx2>,
         fn_kind: rustc_hir::intravisit::FnKind<'tcx2>,
-        fn_decl: &'tcx2 rustc_hir::FnDecl<'tcx2>,
+        _fn_decl: &'tcx2 rustc_hir::FnDecl<'tcx2>,
         _body: &'tcx2 rustc_hir::Body<'tcx2>,
         _span: rustc_span::Span,
         local_def_id: rustc_span::def_id::LocalDefId,
@@ -112,7 +112,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
-        if generics.predicates.is_empty() && fn_decl.inputs.is_empty() {
+        if generics.predicates.is_empty() {
             return;
         }
         let declared_bounds = get_declared_bounds(generics);
@@ -238,20 +238,14 @@ fn collect_nested_ref_implied_bounds(
                 RegionKind::ReBound(_debruijn_index, bound_region) => {
                     if let BoundRegionKind::BrNamed(_def_id, ref_lft_sym) = bound_region.kind {
                         ref_lft_sym_opt = Some(ref_lft_sym);
-                    } else {
-                        dbg!(bound_region.kind);
                     }
                 },
                 RegionKind::ReEarlyParam(early_param_region) => {
                     if early_param_region.has_name() {
                         ref_lft_sym_opt = Some(early_param_region.name);
-                    } else {
-                        dbg!("early_param_region without name");
                     }
                 },
-                _ => {
-                    dbg!(ref_region.kind());
-                },
+                _ => {},
             }
             if let Some(ref_lft_sym) = ref_lft_sym_opt {
                 if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
@@ -264,22 +258,16 @@ fn collect_nested_ref_implied_bounds(
             }
         },
         TyKind::Tuple(tuple_part_tys) => {
-            dbg!("tuple");
             for tuple_part_ty in tuple_part_tys {
-                dbg!(tuple_part_ty);
                 collect_nested_ref_implied_bounds(tuple_part_ty, outlived_lft_sym_opt, implied_bounds);
             }
         },
         TyKind::Array(element_ty, _length) => {
-            dbg!("array");
             collect_nested_ref_implied_bounds(element_ty, outlived_lft_sym_opt, implied_bounds);
         },
         TyKind::Slice(element_ty) => {
-            dbg!("slice");
             collect_nested_ref_implied_bounds(element_ty, outlived_lft_sym_opt, implied_bounds);
         },
-        _ => {
-            // dbg!("unmatched", ty.kind());
-        },
+        _ => {},
     }
 }
