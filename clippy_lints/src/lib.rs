@@ -172,6 +172,7 @@ mod init_numbered_fields;
 mod inline_fn_without_body;
 mod instant_subtraction;
 mod int_plus_one;
+mod integer_division_remainder_used;
 mod invalid_upcast_comparisons;
 mod item_name_repetitions;
 mod items_after_statements;
@@ -1126,6 +1127,7 @@ pub fn register_lints(store: &mut rustc_lint::LintStore, conf: &'static Conf) {
     store.register_late_pass(|_| Box::new(zero_repeat_side_effects::ZeroRepeatSideEffects));
     store.register_late_pass(|_| Box::new(manual_unwrap_or_default::ManualUnwrapOrDefault));
     store.register_late_pass(|_| Box::new(lifetimes_bound_nested_ref::LifetimesBoundNestedRef));
+    store.register_late_pass(|_| Box::new(integer_division_remainder_used::IntegerDivisionRemainderUsed));
     // add lints here, do not remove this comment, it's used in `new_lint`
 }
 
