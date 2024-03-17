@@ -112,9 +112,6 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
-        if generics.predicates.is_empty() {
-            return;
-        }
         let declared_bounds = get_declared_bounds(generics);
 
         // collect bounds implied by nested references with lifetimes in input types and output type
