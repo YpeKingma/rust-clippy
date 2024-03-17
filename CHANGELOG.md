@@ -5157,6 +5157,7 @@ Released 2018-09-13
 [`drop_ref`]: https://rust-lang.github.io/rust-clippy/master/index.html#drop_ref
 [`duplicate_mod`]: https://rust-lang.github.io/rust-clippy/master/index.html#duplicate_mod
 [`duplicate_underscore_argument`]: https://rust-lang.github.io/rust-clippy/master/index.html#duplicate_underscore_argument
+[`duplicated_attributes`]: https://rust-lang.github.io/rust-clippy/master/index.html#duplicated_attributes
 [`duration_subsec`]: https://rust-lang.github.io/rust-clippy/master/index.html#duration_subsec
 [`eager_transmute`]: https://rust-lang.github.io/rust-clippy/master/index.html#eager_transmute
 [`else_if_without_else`]: https://rust-lang.github.io/rust-clippy/master/index.html#else_if_without_else
@@ -5282,6 +5283,7 @@ Released 2018-09-13
 [`int_plus_one`]: https://rust-lang.github.io/rust-clippy/master/index.html#int_plus_one
 [`integer_arithmetic`]: https://rust-lang.github.io/rust-clippy/master/index.html#integer_arithmetic
 [`integer_division`]: https://rust-lang.github.io/rust-clippy/master/index.html#integer_division
+[`integer_division_remainder_used`]: https://rust-lang.github.io/rust-clippy/master/index.html#integer_division_remainder_used
 [`into_iter_on_array`]: https://rust-lang.github.io/rust-clippy/master/index.html#into_iter_on_array
 [`into_iter_on_ref`]: https://rust-lang.github.io/rust-clippy/master/index.html#into_iter_on_ref
 [`into_iter_without_iter`]: https://rust-lang.github.io/rust-clippy/master/index.html#into_iter_without_iter

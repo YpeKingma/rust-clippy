@@ -119,6 +119,7 @@ mod unnecessary_literal_unwrap;
 mod unnecessary_result_map_or_else;
 mod unnecessary_sort_by;
 mod unnecessary_to_owned;
+mod unused_enumerate_index;
 mod unwrap_expect_used;
 mod useless_asref;
 mod utils;
@@ -1236,12 +1237,11 @@ declare_clippy_lint! {
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks for usage of `.iter().nth()` (and the related
-    /// `.iter_mut().nth()`) on standard library types with *O*(1) element access.
+    /// Checks for usage of `.iter().nth()`/`.iter_mut().nth()` on standard library types that have
+    /// equivalent `.get()`/`.get_mut()` methods.
     ///
     /// ### Why is this bad?
-    /// `.get()` and `.get_mut()` are more efficient and more
-    /// readable.
+    /// `.get()` and `.get_mut()` are equivalent but more concise.
     ///
     /// ### Example
     /// ```no_run
@@ -1257,7 +1257,7 @@ declare_clippy_lint! {
     /// ```
     #[clippy::version = "pre 1.29.0"]
     pub ITER_NTH,
-    perf,
+    style,
     "using `.iter().nth()` on a standard library type with O(1) element access"
 }
 
@@ -2849,7 +2849,7 @@ declare_clippy_lint! {
     /// the file is created from scratch, or ensure `truncate` is
     /// called so that the truncation behaviour is explicit. `truncate(true)`
     /// will ensure the file is entirely overwritten with new data, whereas
-    /// `truncate(false)` will explicitely keep the default behavior.
+    /// `truncate(false)` will explicitly keep the default behavior.
     ///
     /// ### Example
     /// ```rust,no_run
@@ -3591,7 +3591,7 @@ declare_clippy_lint! {
     /// ```
     #[clippy::version = "1.73.0"]
     pub READONLY_WRITE_LOCK,
-    nursery,
+    perf,
     "acquiring a write lock when a read lock would work"
 }
 
@@ -4430,6 +4430,7 @@ impl Methods {
                     zst_offset::check(cx, expr, recv);
                 },
                 ("all", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
                     if let Some(("cloned", recv2, [], _, _)) = method_call(recv) {
                         iter_overeager_cloned::check(
                             cx,
@@ -4448,23 +4449,26 @@ impl Methods {
                         unnecessary_lazy_eval::check(cx, expr, recv, arg, "and");
                     }
                 },
-                ("any", [arg]) => match method_call(recv) {
-                    Some(("cloned", recv2, [], _, _)) => iter_overeager_cloned::check(
-                        cx,
-                        expr,
-                        recv,
-                        recv2,
-                        iter_overeager_cloned::Op::NeedlessMove(arg),
-                        false,
-                    ),
-                    Some(("chars", recv, _, _, _))
-                        if let ExprKind::Closure(arg) = arg.kind
-                            && let body = cx.tcx.hir().body(arg.body)
-                            && let [param] = body.params =>
-                    {
-                        string_lit_chars_any::check(cx, expr, recv, param, peel_blocks(body.value), &self.msrv);
-                    },
-                    _ => {},
+                ("any", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
+                    match method_call(recv) {
+                        Some(("cloned", recv2, [], _, _)) => iter_overeager_cloned::check(
+                            cx,
+                            expr,
+                            recv,
+                            recv2,
+                            iter_overeager_cloned::Op::NeedlessMove(arg),
+                            false,
+                        ),
+                        Some(("chars", recv, _, _, _))
+                            if let ExprKind::Closure(arg) = arg.kind
+                                && let body = cx.tcx.hir().body(arg.body)
+                                && let [param] = body.params =>
+                        {
+                            string_lit_chars_any::check(cx, expr, recv, param, peel_blocks(body.value), &self.msrv);
+                        },
+                        _ => {},
+                    }
                 },
                 ("arg", [arg]) => {
                     suspicious_command_arg_space::check(cx, recv, arg, span);
@@ -4597,14 +4601,17 @@ impl Methods {
                     }
                 },
                 ("filter_map", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
                     unnecessary_filter_map::check(cx, expr, arg, name);
                     filter_map_bool_then::check(cx, expr, arg, call_span);
                     filter_map_identity::check(cx, expr, arg, span);
                 },
                 ("find_map", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
                     unnecessary_filter_map::check(cx, expr, arg, name);
                 },
                 ("flat_map", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
                     flat_map_identity::check(cx, expr, arg, span);
                     flat_map_option::check(cx, expr, arg, span);
                 },
@@ -4626,17 +4633,20 @@ impl Methods {
                     manual_try_fold::check(cx, expr, init, acc, call_span, &self.msrv);
                     unnecessary_fold::check(cx, expr, init, acc, span);
                 },
-                ("for_each", [arg]) => match method_call(recv) {
-                    Some(("inspect", _, [_], span2, _)) => inspect_for_each::check(cx, expr, span2),
-                    Some(("cloned", recv2, [], _, _)) => iter_overeager_cloned::check(
-                        cx,
-                        expr,
-                        recv,
-                        recv2,
-                        iter_overeager_cloned::Op::NeedlessMove(arg),
-                        false,
-                    ),
-                    _ => {},
+                ("for_each", [arg]) => {
+                    unused_enumerate_index::check(cx, expr, recv, arg);
+                    match method_call(recv) {
+                        Some(("inspect", _, [_], span2, _)) => inspect_for_each::check(cx, expr, span2),
+                        Some(("cloned", recv2, [], _, _)) => iter_overeager_cloned::check(
+                            cx,
+                            expr,
+                            recv,
+                            recv2,
+                            iter_overeager_cloned::Op::NeedlessMove(arg),
+                            false,
+                        ),
+                        _ => {},
+                    }
                 },
                 ("get", [arg]) => {
                     get_first::check(cx, expr, recv, arg);
@@ -4683,6 +4693,7 @@ impl Methods {
                 },
                 (name @ ("map" | "map_err"), [m_arg]) => {
                     if name == "map" {
+                        unused_enumerate_index::check(cx, expr, recv, m_arg);
                         map_clone::check(cx, expr, recv, m_arg, &self.msrv);
                         match method_call(recv) {
                             Some((map_name @ ("iter" | "into_iter"), recv2, _, _, _)) => {
@@ -4756,8 +4767,11 @@ impl Methods {
                         iter_overeager_cloned::Op::LaterCloned,
                         false,
                     ),
-                    Some(("iter", recv2, [], _, _)) => iter_nth::check(cx, expr, recv2, recv, n_arg, false),
-                    Some(("iter_mut", recv2, [], _, _)) => iter_nth::check(cx, expr, recv2, recv, n_arg, true),
+                    Some((iter_method @ ("iter" | "iter_mut"), iter_recv, [], iter_span, _)) => {
+                        if !iter_nth::check(cx, expr, iter_recv, iter_method, iter_span, span) {
+                            iter_nth_zero::check(cx, expr, recv, n_arg);
+                        }
+                    },
                     _ => iter_nth_zero::check(cx, expr, recv, n_arg),
                 },
                 ("ok_or_else", [arg]) => unnecessary_lazy_eval::check(cx, expr, recv, arg, "ok_or"),
