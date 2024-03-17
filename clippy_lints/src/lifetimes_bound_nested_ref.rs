@@ -168,6 +168,8 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             return;
         }
         dbg!(local_def_id);
+        let fn_sig = ctx.tcx.fn_sig(local_def_id);
+        dbg!(fn_sig);
         // collect declared predicate bounds on lifetime pairs
         let mut declared_bounds = BTreeSet::<BoundLftPair>::new();
         for where_predicate in generics.predicates {
@@ -177,14 +179,14 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let mut implied_bounds = BTreeSet::<BoundLftPair>::new();
         for input_hir_ty in fn_decl.inputs {
             dbg!("input");
-            let input_ty = hir_ty_to_normalized_erasing_regions_ty(ctx, input_hir_ty);
+            let input_ty = hir_ty_to_ty_wrapped(ctx, input_hir_ty);
             let normalized_input_ty = ctx.tcx.normalize_erasing_regions(ctx.param_env, input_ty);
             implied_bounds.append(&mut get_nested_ref_implied_bounds(ctx, normalized_input_ty, None));
         }
         // and for function return type
         if let rustc_hir::FnRetTy::Return(ret_hir_ty) = fn_decl.output {
             dbg!("output");
-            let output_ty = hir_ty_to_normalized_erasing_regions_ty(ctx, ret_hir_ty);
+            let output_ty = hir_ty_to_ty_wrapped(ctx, ret_hir_ty);
             implied_bounds.append(&mut get_nested_ref_implied_bounds(ctx, output_ty, None));
         }
 
@@ -218,10 +220,11 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     }
 }
 
-fn hir_ty_to_normalized_erasing_regions_ty<'tcx2>(ctx: &LateContext<'tcx2>, hir_ty: &HirTy<'tcx2>) -> Ty<'tcx2> {
+fn hir_ty_to_ty_wrapped<'tcx2>(ctx: &LateContext<'tcx2>, hir_ty: &HirTy<'tcx2>) -> Ty<'tcx2> {
     let ty = hir_ty_to_ty(ctx.tcx, hir_ty);
-    let normalized_ty = ctx.tcx.normalize_erasing_regions(ctx.param_env, ty);
-    normalized_ty
+    ty
+    // let normalized_ty = ctx.tcx.normalize_erasing_regions(ctx.param_env, ty);
+    // normalized_ty
 }
 
 fn get_declared_bounds(where_predicate: &WherePredicate<'_>) -> BTreeSet<BoundLftPair> {
@@ -257,6 +260,9 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
     // use the variants with GenericArgs and/or subtypes.
     match *ty.kind() {
         TyKind::Ref(region, referred_to_ty, _mutability) => {
+            dbg!(region);
+            dbg!(referred_to_ty);
+            // For lifetime_translator2, in the arg type &'lfta &'lftb T this misses the part after &'lfta, why?
             match region.kind() {
                 RegionKind::ReBound(_debruijn_index, bound_region) => {
                     if let BoundRegionKind::BrNamed(_def_id, ref_lifetime) = bound_region.kind {
@@ -266,7 +272,6 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
                             implied_bounds.insert(bound_lifetime_pair);
                         }
                         // long_lifetime can be outlived by referred_to_ty
-                        dbg!(referred_to_ty);
                         implied_bounds.append(&mut get_nested_ref_implied_bounds(
                             ctx,
                             referred_to_ty,
@@ -277,11 +282,7 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
                     }
                 },
                 RegionKind::ReEarlyParam(early_param_region) => {
-                    // For lifetime_translator2, in the arg type &'lfta &'lftb T this misses the part after &'lfta, why?
-                    // I would expect a RegionKind::ReBound instead of this RegionKind::ReEarlyParam.
                     dbg!(early_param_region); // has def_id, index and name
-                    // So: for lifetime_translator2 how to get from here to the missed part  &'lftb
-                    // T?
                 },
                 _ => {
                     dbg!(region.kind());
