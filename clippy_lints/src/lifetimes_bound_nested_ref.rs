@@ -117,18 +117,14 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         }
         let declared_bounds = get_declared_bounds(generics);
 
-        let bound_fn_sig = cx.tcx.fn_sig(local_def_id);
-        let fn_sig = bound_fn_sig.skip_binder().skip_binder();
-
-        // collect bounds implied by nested references with lifetimes in input arguments
+        // collect bounds implied by nested references with lifetimes in input arguments and return type
         let mut implied_bounds = BTreeSet::<BoundLftPair>::new();
+        let fn_sig = cx.tcx.fn_sig(local_def_id).skip_binder().skip_binder();
         for input_ty in fn_sig.inputs() {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds(*input_ty, None));
+            collect_nested_ref_implied_bounds(*input_ty, None, &mut implied_bounds);
         }
-
-        // and for function return type
-        let output_ty = fn_sig.output();
-        implied_bounds.append(&mut get_nested_ref_implied_bounds(output_ty, None));
+        collect_nested_ref_implied_bounds(fn_sig.output(), None, &mut implied_bounds);
+        let implied_bounds = implied_bounds;
 
         for implied_bound in &implied_bounds {
             if !declared_bounds.contains(implied_bound) {
@@ -168,11 +164,10 @@ struct BoundLftPair {
 
 impl BoundLftPair {
     fn new(long_lft_sym: &Symbol, outlived_lft_sym: &Symbol) -> Self {
-        let res = BoundLftPair {
+        BoundLftPair {
             long_lft: long_lft_sym.to_ident_string(),
             outlived_lft: outlived_lft_sym.to_ident_string(),
-        };
-        res
+        }
     }
 
     fn as_bound_declaration(&self) -> String {
@@ -231,22 +226,25 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
 }
 
 #[allow(rustc::usage_of_ty_tykind)]
-fn get_nested_ref_implied_bounds<'a>(ty: Ty<'a>, outlived_lft_opt: Option<Symbol>) -> BTreeSet<BoundLftPair> {
-    let mut implied_bounds = BTreeSet::new();
+fn collect_nested_ref_implied_bounds<'a>(
+    ty: Ty<'a>,
+    outlived_lft_sym_opt: Option<Symbol>,
+    implied_bounds: &mut BTreeSet<BoundLftPair>,
+) {
     match *ty.kind() {
         TyKind::Ref(region, referred_to_ty, _mutability) => {
-            let mut ref_lft_opt: Option<Symbol> = None;
+            let mut ref_lft_sym_opt: Option<Symbol> = None;
             match region.kind() {
                 RegionKind::ReBound(_debruijn_index, bound_region) => {
-                    if let BoundRegionKind::BrNamed(_def_id, ref_lft) = bound_region.kind {
-                        ref_lft_opt = Some(ref_lft);
+                    if let BoundRegionKind::BrNamed(_def_id, ref_lft_sym) = bound_region.kind {
+                        ref_lft_sym_opt = Some(ref_lft_sym);
                     } else {
                         dbg!(bound_region.kind);
                     }
                 },
                 RegionKind::ReEarlyParam(early_param_region) => {
                     if early_param_region.has_name() {
-                        ref_lft_opt = Some(early_param_region.name);
+                        ref_lft_sym_opt = Some(early_param_region.name);
                     } else {
                         dbg!("early_param_region without name");
                     }
@@ -255,26 +253,25 @@ fn get_nested_ref_implied_bounds<'a>(ty: Ty<'a>, outlived_lft_opt: Option<Symbol
                     dbg!(region.kind());
                 },
             }
-            if let Some(ref_lft) = ref_lft_opt {
-                if let Some(outlived_lft) = outlived_lft_opt {
-                    // ref_lft outlives outlived_lft
-                    let bound_lft_pair = BoundLftPair::new(&ref_lft, &outlived_lft);
+            if let Some(ref_lft_sym) = ref_lft_sym_opt {
+                if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
+                    // ref_lft_sym outlives outlived_lft_sym
+                    let bound_lft_pair = BoundLftPair::new(&ref_lft_sym, &outlived_lft_sym);
                     implied_bounds.insert(bound_lft_pair);
                 }
-                // ref_lft may be outlived by deeper refs:
-                implied_bounds.append(&mut get_nested_ref_implied_bounds(referred_to_ty, Some(ref_lft)));
+                // ref_lft_sym may be outlived by deeper refs:
+                collect_nested_ref_implied_bounds(referred_to_ty, Some(ref_lft_sym), implied_bounds);
             }
         },
         TyKind::Tuple(tuple_part_tys) => {
             dbg!("tuple");
             for tuple_part_ty in tuple_part_tys {
                 dbg!(tuple_part_ty);
-                implied_bounds.append(&mut get_nested_ref_implied_bounds(tuple_part_ty, outlived_lft_opt));
+                collect_nested_ref_implied_bounds(tuple_part_ty, outlived_lft_sym_opt, implied_bounds);
             }
         },
         _ => {
             // dbg!("unmatched", ty.kind());
         },
     }
-    implied_bounds
 }
