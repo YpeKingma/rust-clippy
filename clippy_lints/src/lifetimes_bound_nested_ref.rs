@@ -162,7 +162,7 @@ struct BoundLftPair {
 }
 
 impl BoundLftPair {
-    fn new(long_lft_sym: &Symbol, outlived_lft_sym: &Symbol) -> Self {
+    fn new(long_lft_sym: Symbol, outlived_lft_sym: Symbol) -> Self {
         BoundLftPair {
             long_lft: long_lft_sym.to_ident_string(),
             outlived_lft: outlived_lft_sym.to_ident_string(),
@@ -178,19 +178,13 @@ impl PartialEq for BoundLftPair {
     fn eq(&self, other: &Self) -> bool {
         self.long_lft.eq(&other.long_lft) && self.outlived_lft.eq(&other.outlived_lft)
     }
-
-    fn ne(&self, other: &Self) -> bool {
-        !self.eq(other)
-    }
 }
 
 impl Eq for BoundLftPair {}
 
 impl PartialOrd for BoundLftPair {
     fn partial_cmp(&self, other: &BoundLftPair) -> Option<Ordering> {
-        self.long_lft
-            .partial_cmp(&other.long_lft)
-            .or(self.outlived_lft.partial_cmp(&other.outlived_lft))
+        Some(self.cmp(other))
     }
 }
 
@@ -215,7 +209,7 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
                     let GenericBound::Outlives(outlived_lft) = *generic_bound else {
                         continue;
                     };
-                    let declared_bound = BoundLftPair::new(&long_lft_sym, &outlived_lft.ident.name);
+                    let declared_bound = BoundLftPair::new(long_lft_sym, outlived_lft.ident.name);
                     declared_bounds.insert(declared_bound);
                 }
             },
@@ -249,7 +243,7 @@ fn collect_nested_ref_implied_bounds(
             if let Some(ref_lft_sym) = ref_lft_sym_opt {
                 if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
                     // ref_lft_sym outlives outlived_lft_sym
-                    let bound_lft_pair = BoundLftPair::new(&ref_lft_sym, &outlived_lft_sym);
+                    let bound_lft_pair = BoundLftPair::new(ref_lft_sym, outlived_lft_sym);
                     implied_bounds.insert(bound_lft_pair);
                 }
                 // ref_lft_sym may be outlived by deeper refs
