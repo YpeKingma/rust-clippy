@@ -123,12 +123,12 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect bounds implied by nested references with lifetimes in input arguments
         let mut implied_bounds = BTreeSet::<BoundLftPair>::new();
         for input_ty in fn_sig.inputs() {
-            implied_bounds.append(&mut get_nested_ref_implied_bounds(cx, *input_ty, None));
+            implied_bounds.append(&mut get_nested_ref_implied_bounds(*input_ty, None));
         }
 
         // and for function return type
         let output_ty = fn_sig.output();
-        implied_bounds.append(&mut get_nested_ref_implied_bounds(cx, output_ty, None));
+        implied_bounds.append(&mut get_nested_ref_implied_bounds(output_ty, None));
 
         for implied_bound in &implied_bounds {
             if !declared_bounds.contains(implied_bound) {
@@ -215,16 +215,14 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
     for where_predicate in generics.predicates {
         match where_predicate {
             WherePredicate::BoundPredicate(_) | WherePredicate::EqPredicate(_) => {},
-            WherePredicate::RegionPredicate(where_region_predicate) => {
-                for generic_bound in where_region_predicate.bounds {
-                    let GenericBound::Outlives(outlived_lifetime) = generic_bound else {
+            WherePredicate::RegionPredicate(region_predicate) => {
+                let long_lft_sym = region_predicate.lifetime.ident.name;
+                for generic_bound in region_predicate.bounds {
+                    let GenericBound::Outlives(outlived_lft) = *generic_bound else {
                         continue;
                     };
-                    let declared_bound_lifetime_pair = BoundLftPair::new(
-                        &where_region_predicate.lifetime.ident.name,
-                        &outlived_lifetime.ident.name,
-                    );
-                    declared_bounds.insert(declared_bound_lifetime_pair);
+                    let declared_bound = BoundLftPair::new(&long_lft_sym, &outlived_lft.ident.name);
+                    declared_bounds.insert(declared_bound);
                 }
             },
         }
@@ -233,28 +231,22 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
 }
 
 #[allow(rustc::usage_of_ty_tykind)]
-fn get_nested_ref_implied_bounds<'tcx2, 'a>(
-    cx: &LateContext<'tcx2>,
-    ty: Ty<'a>,
-    outlived_lifetime_opt: Option<Symbol>,
-) -> BTreeSet<BoundLftPair> {
+fn get_nested_ref_implied_bounds<'a>(ty: Ty<'a>, outlived_lft_opt: Option<Symbol>) -> BTreeSet<BoundLftPair> {
     let mut implied_bounds = BTreeSet::new();
-    // scan ty for a reference with a declared lifetime.
-    // use the variants with GenericArgs and/or subtypes.
     match *ty.kind() {
         TyKind::Ref(region, referred_to_ty, _mutability) => {
-            let mut ref_lifetime_opt: Option<Symbol> = None;
+            let mut ref_lft_opt: Option<Symbol> = None;
             match region.kind() {
                 RegionKind::ReBound(_debruijn_index, bound_region) => {
-                    if let BoundRegionKind::BrNamed(_def_id, ref_lifetime) = bound_region.kind {
-                        ref_lifetime_opt = Some(ref_lifetime);
+                    if let BoundRegionKind::BrNamed(_def_id, ref_lft) = bound_region.kind {
+                        ref_lft_opt = Some(ref_lft);
                     } else {
                         dbg!(bound_region.kind);
                     }
                 },
                 RegionKind::ReEarlyParam(early_param_region) => {
                     if early_param_region.has_name() {
-                        ref_lifetime_opt = Some(early_param_region.name);
+                        ref_lft_opt = Some(early_param_region.name);
                     } else {
                         dbg!("early_param_region without name");
                     }
@@ -263,27 +255,21 @@ fn get_nested_ref_implied_bounds<'tcx2, 'a>(
                     dbg!(region.kind());
                 },
             }
-            if let Some(ref_lifetime) = ref_lifetime_opt {
-                if let Some(outlived_lifetime) = outlived_lifetime_opt {
-                    let bound_lifetime_pair = BoundLftPair::new(&ref_lifetime, &outlived_lifetime);
-                    implied_bounds.insert(bound_lifetime_pair);
+            if let Some(ref_lft) = ref_lft_opt {
+                if let Some(outlived_lft) = outlived_lft_opt {
+                    // ref_lft outlives outlived_lft
+                    let bound_lft_pair = BoundLftPair::new(&ref_lft, &outlived_lft);
+                    implied_bounds.insert(bound_lft_pair);
                 }
-                implied_bounds.append(&mut get_nested_ref_implied_bounds(
-                    cx,
-                    referred_to_ty,
-                    Some(ref_lifetime),
-                ));
+                // ref_lft may be outlived by deeper refs:
+                implied_bounds.append(&mut get_nested_ref_implied_bounds(referred_to_ty, Some(ref_lft)));
             }
         },
         TyKind::Tuple(tuple_part_tys) => {
             dbg!("tuple");
             for tuple_part_ty in tuple_part_tys {
                 dbg!(tuple_part_ty);
-                implied_bounds.append(&mut get_nested_ref_implied_bounds(
-                    cx,
-                    tuple_part_ty,
-                    outlived_lifetime_opt,
-                ));
+                implied_bounds.append(&mut get_nested_ref_implied_bounds(tuple_part_ty, outlived_lft_opt));
             }
         },
         _ => {
