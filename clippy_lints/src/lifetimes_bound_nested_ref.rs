@@ -4,10 +4,10 @@
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
 /// manually adding a generic lifetime bound that is implied by a nested reference:
 ///
-///     Issue 25860: 
+///     Issue 25860:
 ///     Implied bounds on nested references + variance = soundness hole
 ///     
-///     Issue 84591: 
+///     Issue 84591:
 ///     HRTB on subtrait unsoundly provides HTRB on supertrait with weaker implied bounds
 ///     
 ///     Issue 100051:
