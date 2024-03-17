@@ -4,13 +4,13 @@
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
 /// manually adding a generic lifetime bound that is implied by a nested reference:
 ///
-///     <https://github.com/rust-lang/rust/issues/25860>
+///     https://github.com/rust-lang/rust/issues/25860
 ///     Implied bounds on nested references + variance = soundness hole
 ///     
-///     <https://github.com/rust-lang/rust/issues/84591>
+///     https://github.com/rust-lang/rust/issues/84591
 ///     HRTB on subtrait unsoundly provides HTRB on supertrait with weaker implied bounds
 ///     
-///     <https://github.com/rust-lang/rust/issues/100051>
+///     https://github.com/rust-lang/rust/issues/100051
 ///     implied bounds from projections in impl header can be unsound
 ///     
 /// The lints here suggest to manually add such lifetime bounds in the hope that
