@@ -26,13 +26,19 @@ use std::collections::BTreeSet;
 
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{GenericArg, GenericBound, Generics, Item, ItemKind, WherePredicate};
+use rustc_hir::{
+    GenericArg, GenericBound, GenericParam, GenericParamKind, Generics, Item, ItemKind, LifetimeParamKind,
+    WherePredicate,
+};
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
 use rustc_middle::ty::{BoundRegionKind, RegionKind, Ty};
 use rustc_session::impl_lint_pass;
 use rustc_span::Symbol;
+
+extern crate rustc_type_ir;
+use rustc_type_ir::AliasKind;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -119,7 +125,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
-        if generics.params.is_empty() {
+        if !at_least_2_explicit_lifetimes(generics.params) {
             return;
         }
         let declared_bounds = get_declared_bounds(generics);
@@ -140,12 +146,12 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let ItemKind::Impl(impl_item) = item.kind else {
             return;
         };
-        if impl_item.generics.params.is_empty() {
-            return;
-        }
         let Some(of_trait_ref) = impl_item.of_trait else {
             return;
         };
+        if !at_least_2_explicit_lifetimes(impl_item.generics.params) {
+            return;
+        }
         let declared_bounds = get_declared_bounds(impl_item.generics);
         let mut implied_bounds = BTreeSet::new();
         for path_segment in of_trait_ref.path.segments {
@@ -159,6 +165,8 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
                 }
             }
         }
+        let for_clause_ty = hir_ty_to_ty(cx.tcx, impl_item.self_ty); // impl ... for   for_clause_type   {}
+        collect_nested_ref_implied_bounds(for_clause_ty, None, &mut implied_bounds);
         report_lints(cx, impl_item.generics.span, &declared_bounds, &implied_bounds);
     }
 }
@@ -204,6 +212,19 @@ impl Ord for BoundLftPair {
             Ordering::Equal => self.outlived_lft.cmp(&other.outlived_lft),
         }
     }
+}
+
+fn at_least_2_explicit_lifetimes<'a>(generic_params: &'a [GenericParam<'a>]) -> bool {
+    generic_params
+        .iter()
+        .filter(|gp| match gp.kind {
+            GenericParamKind::Lifetime {
+                kind: LifetimeParamKind::Explicit,
+            } => true,
+            _ => false,
+        })
+        .enumerate()
+        .any(|(i, _)| i >= 1)
 }
 
 fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
@@ -268,6 +289,15 @@ fn collect_nested_ref_implied_bounds(
         },
         TyKind::Slice(element_ty) => {
             collect_nested_ref_implied_bounds(element_ty, outlived_lft_sym_opt, implied_bounds);
+        },
+        TyKind::Alias(AliasKind::Projection, alias_ty) => {
+            // a for clause in: impl ... for ... {}
+            for alias_generic_arg in alias_ty.args {
+                let Some(alias_ty) = alias_generic_arg.as_type() else {
+                    continue;
+                };
+                collect_nested_ref_implied_bounds(alias_ty, outlived_lft_sym_opt, implied_bounds);
+            }
         },
         _ => {},
     }

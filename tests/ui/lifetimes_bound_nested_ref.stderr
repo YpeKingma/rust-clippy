@@ -28,5 +28,17 @@ error: declared lifetime bound is implied: 'a: 'b
 LL | impl<'a: 'b, 'b> Subtrait2<'a, 'b, &'b &'a ()> for MyStruct {}
    |     ^^^^^^^^^^^^
 
-error: aborting due to 4 previous errors
+error: missing lifetime bound declation: 'a: 'b
+  --> tests/ui/lifetimes_bound_nested_ref.rs:52:5
+   |
+LL | impl<'a, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
+   |     ^^^^^^^^
+
+error: declared lifetime bound is implied: 'a: 'b
+  --> tests/ui/lifetimes_bound_nested_ref.rs:71:5
+   |
+LL | impl<'a: 'b, 'b> Extend2<'a, 'b> for <&'b &'a () as Trait2>::Type2 {
+   |     ^^^^^^^^^^^^
+
+error: aborting due to 6 previous errors
 
