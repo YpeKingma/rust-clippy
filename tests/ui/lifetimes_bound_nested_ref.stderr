@@ -16,5 +16,17 @@ LL | pub fn lifetime_translator_2<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T
    = note: `-D clippy::explicit-lifetimes-bound-nested-ref` implied by `-D warnings`
    = help: to override `-D warnings` add `#[allow(clippy::explicit_lifetimes_bound_nested_ref)]`
 
-error: aborting due to 2 previous errors
+error: missing lifetime bound declation: 'a: 'b
+  --> tests/ui/lifetimes_bound_nested_ref.rs:31:5
+   |
+LL | impl<'a, 'b> Subtrait<'a, 'b, &'b &'a ()> for MyStruct {}
+   |     ^^^^^^^^
+
+error: declared lifetime bound is implied: 'a: 'b
+  --> tests/ui/lifetimes_bound_nested_ref.rs:36:5
+   |
+LL | impl<'a: 'b, 'b> Subtrait2<'a, 'b, &'b &'a ()> for MyStruct {}
+   |     ^^^^^^^^^^^^
+
+error: aborting due to 4 previous errors
 

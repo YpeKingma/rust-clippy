@@ -26,7 +26,8 @@ use std::collections::BTreeSet;
 
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{GenericBound, Generics, WherePredicate};
+use rustc_hir::{GenericArg, GenericBound, Generics, Item, ItemKind, WherePredicate};
+use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
 use rustc_middle::ty::{BoundRegionKind, RegionKind, Ty};
@@ -105,6 +106,7 @@ impl_lint_pass!(LifetimesBoundNestedRef => [
 ]);
 
 impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
+    /// For issue 25860
     fn check_fn<'tcx2>(
         &mut self,
         cx: &LateContext<'tcx2>,
@@ -117,6 +119,9 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
+        if generics.params.is_empty() {
+            return;
+        }
         let declared_bounds = get_declared_bounds(generics);
 
         // collect bounds implied by nested references with lifetimes in input types and output type
@@ -126,35 +131,35 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             collect_nested_ref_implied_bounds(*input_ty, None, &mut implied_bounds);
         }
         collect_nested_ref_implied_bounds(fn_sig.output(), None, &mut implied_bounds);
-        let implied_bounds = implied_bounds;
+        report_lints(cx, generics.span, &declared_bounds, &implied_bounds);
+    }
 
-        for implied_bound in &implied_bounds {
-            if !declared_bounds.contains(implied_bound) {
-                span_lint(
-                    cx,
-                    IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
-                    generics.span,
-                    &format!(
-                        "missing lifetime bound declation: {}",
-                        implied_bound.as_bound_declaration()
-                    ),
-                );
+    /// For issue 84591
+    /// Possibly issue 100051
+    fn check_item_post<'tcx2>(&mut self, cx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
+        let ItemKind::Impl(impl_item) = item.kind else {
+            return;
+        };
+        if impl_item.generics.params.is_empty() {
+            return;
+        }
+        let Some(of_trait_ref) = impl_item.of_trait else {
+            return;
+        };
+        let declared_bounds = get_declared_bounds(impl_item.generics);
+        let mut implied_bounds = BTreeSet::new();
+        for path_segment in of_trait_ref.path.segments {
+            let Some(generic_args) = path_segment.args else {
+                continue;
+            };
+            for generic_arg in generic_args.args {
+                if let GenericArg::Type(hir_ty) = generic_arg {
+                    let ty = hir_ty_to_ty(cx.tcx, hir_ty);
+                    collect_nested_ref_implied_bounds(ty, None, &mut implied_bounds);
+                }
             }
         }
-
-        for declared_bound in &declared_bounds {
-            if implied_bounds.contains(declared_bound) {
-                span_lint(
-                    cx,
-                    EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
-                    generics.span,
-                    &format!(
-                        "declared lifetime bound is implied: {}",
-                        declared_bound.as_bound_declaration()
-                    ),
-                );
-            }
-        }
+        report_lints(cx, impl_item.generics.span, &declared_bounds, &implied_bounds);
     }
 }
 
@@ -265,5 +270,36 @@ fn collect_nested_ref_implied_bounds(
             collect_nested_ref_implied_bounds(element_ty, outlived_lft_sym_opt, implied_bounds);
         },
         _ => {},
+    }
+}
+
+fn report_lints<'tcx2>(
+    cx: &LateContext<'tcx2>,
+    span: rustc_span::Span,
+    declared_bounds: &BTreeSet<BoundLftPair>,
+    implied_bounds: &BTreeSet<BoundLftPair>,
+) {
+    for implied_bound in implied_bounds.difference(declared_bounds) {
+        span_lint(
+            cx,
+            IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
+            span,
+            &format!(
+                "missing lifetime bound declation: {}",
+                implied_bound.as_bound_declaration()
+            ),
+        );
+    }
+
+    for declared_bound in declared_bounds.intersection(implied_bounds) {
+        span_lint(
+            cx,
+            EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
+            span,
+            &format!(
+                "declared lifetime bound is implied: {}",
+                declared_bound.as_bound_declaration()
+            ),
+        );
     }
 }
