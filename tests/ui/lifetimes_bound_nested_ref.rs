@@ -1,4 +1,4 @@
-#![warn(clippy::implicit_lifetimes_bound_nested_ref)]
+// #![warn(clippy::implicit_lifetimes_bound_nested_ref)]
 #![warn(clippy::explicit_lifetimes_bound_nested_ref)]
 
 use core::mem::MaybeUninit;

@@ -70,7 +70,7 @@ declare_clippy_lint! {
     /// ```
     #[clippy::version = "1.78.0"]
     pub IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
-    nursery,
+    suspicious, // nursery,
     "suggest to add generic lifetime bounds implied by nested references in function arguments and return value"
 }
 
