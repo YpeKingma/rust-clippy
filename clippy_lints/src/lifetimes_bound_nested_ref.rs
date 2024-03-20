@@ -217,11 +217,13 @@ impl Ord for BoundLftPair {
 fn at_least_2_explicit_lifetimes<'a>(generic_params: &'a [GenericParam<'a>]) -> bool {
     generic_params
         .iter()
-        .filter(|gp| match gp.kind {
-            GenericParamKind::Lifetime {
-                kind: LifetimeParamKind::Explicit,
-            } => true,
-            _ => false,
+        .filter(|gp| {
+            matches!(
+                gp.kind,
+                GenericParamKind::Lifetime {
+                    kind: LifetimeParamKind::Explicit,
+                }
+            )
         })
         .enumerate()
         .any(|(i, _)| i >= 1)
@@ -303,8 +305,8 @@ fn collect_nested_ref_implied_bounds(
     }
 }
 
-fn report_lints<'tcx2>(
-    cx: &LateContext<'tcx2>,
+fn report_lints(
+    cx: &LateContext<'_>,
     span: rustc_span::Span,
     declared_bounds: &BTreeSet<BoundLftPair>,
     implied_bounds: &BTreeSet<BoundLftPair>,

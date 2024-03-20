@@ -11,7 +11,6 @@ pub fn lifetime_translator_2<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T, _va
     val_a
 }
 
-
 // helper declarations for issue 84591
 trait Supertrait<'a, 'b> {
     fn convert<T: ?Sized>(x: &'a T) -> &'b T;

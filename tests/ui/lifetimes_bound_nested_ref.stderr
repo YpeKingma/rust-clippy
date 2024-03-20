@@ -17,28 +17,27 @@ LL | pub fn lifetime_translator_2<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T
    = help: to override `-D warnings` add `#[allow(clippy::explicit_lifetimes_bound_nested_ref)]`
 
 error: missing lifetime bound declation: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref.rs:31:5
+  --> tests/ui/lifetimes_bound_nested_ref.rs:30:5
    |
 LL | impl<'a, 'b> Subtrait<'a, 'b, &'b &'a ()> for MyStruct {}
    |     ^^^^^^^^
 
 error: declared lifetime bound is implied: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref.rs:36:5
+  --> tests/ui/lifetimes_bound_nested_ref.rs:35:5
    |
 LL | impl<'a: 'b, 'b> Subtrait2<'a, 'b, &'b &'a ()> for MyStruct {}
    |     ^^^^^^^^^^^^
 
 error: missing lifetime bound declation: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref.rs:52:5
+  --> tests/ui/lifetimes_bound_nested_ref.rs:51:5
    |
 LL | impl<'a, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
    |     ^^^^^^^^
 
 error: declared lifetime bound is implied: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref.rs:71:5
+  --> tests/ui/lifetimes_bound_nested_ref.rs:70:5
    |
 LL | impl<'a: 'b, 'b> Extend2<'a, 'b> for <&'b &'a () as Trait2>::Type2 {
    |     ^^^^^^^^^^^^
 
 error: aborting due to 6 previous errors
-
