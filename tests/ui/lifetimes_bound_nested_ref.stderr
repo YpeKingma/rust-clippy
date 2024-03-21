@@ -41,3 +41,4 @@ LL | impl<'a: 'b, 'b> Extend2<'a, 'b> for <&'b &'a () as Trait2>::Type2 {
    |     ^^^^^^^^^^^^
 
 error: aborting due to 6 previous errors
+
