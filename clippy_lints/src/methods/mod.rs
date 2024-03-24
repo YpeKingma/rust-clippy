@@ -231,8 +231,12 @@ declare_clippy_lint! {
     /// used instead.
     ///
     /// ### Why is this bad?
-    /// When applicable, `filter_map()` is more clear since it shows that
-    /// `Option` is used to produce 0 or 1 items.
+    /// `filter_map()` is known to always produce 0 or 1 output items per input item,
+    /// rather than however many the inner iterator type produces.
+    /// Therefore, it maintains the upper bound in `Iterator::size_hint()`,
+    /// and communicates to the reader that the input items are not being expanded into
+    /// multiple output items without their having to notice that the mapping function
+    /// returns an `Option`.
     ///
     /// ### Example
     /// ```no_run
@@ -2863,7 +2867,7 @@ declare_clippy_lint! {
     ///
     /// OpenOptions::new().create(true).truncate(true);
     /// ```
-    #[clippy::version = "1.75.0"]
+    #[clippy::version = "1.77.0"]
     pub SUSPICIOUS_OPEN_OPTIONS,
     suspicious,
     "suspicious combination of options for opening a file"
@@ -3817,7 +3821,7 @@ declare_clippy_lint! {
     /// ```no_run
     /// let _ = std::iter::empty::<Result<i32, ()>>().flatten();
     /// ```
-    #[clippy::version = "1.76.0"]
+    #[clippy::version = "1.77.0"]
     pub RESULT_FILTER_MAP,
     complexity,
     "filtering `Result` for `Ok` then force-unwrapping, which can be one type-safe operation"
@@ -3826,7 +3830,7 @@ declare_clippy_lint! {
 declare_clippy_lint! {
     /// ### What it does
     /// Checks for usage of `.filter(Option::is_some)` that may be replaced with a `.flatten()` call.
-    /// This lint will require additional changes to the follow-up calls as it appects the type.
+    /// This lint will require additional changes to the follow-up calls as it affects the type.
     ///
     /// ### Why is this bad?
     /// This pattern is often followed by manual unwrapping of the `Option`. The simplification
@@ -3843,7 +3847,7 @@ declare_clippy_lint! {
     /// // example code which does not raise clippy warning
     /// vec![Some(1)].into_iter().flatten();
     /// ```
-    #[clippy::version = "1.76.0"]
+    #[clippy::version = "1.77.0"]
     pub ITER_FILTER_IS_SOME,
     pedantic,
     "filtering an iterator over `Option`s for `Some` can be achieved with `flatten`"
@@ -3852,7 +3856,7 @@ declare_clippy_lint! {
 declare_clippy_lint! {
     /// ### What it does
     /// Checks for usage of `.filter(Result::is_ok)` that may be replaced with a `.flatten()` call.
-    /// This lint will require additional changes to the follow-up calls as it appects the type.
+    /// This lint will require additional changes to the follow-up calls as it affects the type.
     ///
     /// ### Why is this bad?
     /// This pattern is often followed by manual unwrapping of `Result`. The simplification
@@ -3869,7 +3873,7 @@ declare_clippy_lint! {
     /// // example code which does not raise clippy warning
     /// vec![Ok::<i32, String>(1)].into_iter().flatten();
     /// ```
-    #[clippy::version = "1.76.0"]
+    #[clippy::version = "1.77.0"]
     pub ITER_FILTER_IS_OK,
     pedantic,
     "filtering an iterator over `Result`s for `Ok` can be achieved with `flatten`"
@@ -3896,7 +3900,7 @@ declare_clippy_lint! {
     /// option.is_some_and(|a| a > 10);
     /// result.is_ok_and(|a| a > 10);
     /// ```
-    #[clippy::version = "1.76.0"]
+    #[clippy::version = "1.77.0"]
     pub MANUAL_IS_VARIANT_AND,
     pedantic,
     "using `.map(f).unwrap_or_default()`, which is more succinctly expressed as `is_some_and(f)` or `is_ok_and(f)`"
@@ -3926,7 +3930,7 @@ declare_clippy_lint! {
     /// `"\r\n"`), for example during the parsing of a specific file format in which precisely one newline type is
     /// valid.
     /// ```
-    #[clippy::version = "1.76.0"]
+    #[clippy::version = "1.77.0"]
     pub STR_SPLIT_AT_NEWLINE,
     pedantic,
     "splitting a trimmed string at hard-coded newlines"
@@ -4236,8 +4240,8 @@ impl_lint_pass!(Methods => [
 
 /// Extracts a method call name, args, and `Span` of the method name.
 pub fn method_call<'tcx>(
-    recv: &'tcx hir::Expr<'tcx>,
-) -> Option<(&'tcx str, &'tcx hir::Expr<'tcx>, &'tcx [hir::Expr<'tcx>], Span, Span)> {
+    recv: &'tcx Expr<'tcx>,
+) -> Option<(&'tcx str, &'tcx Expr<'tcx>, &'tcx [Expr<'tcx>], Span, Span)> {
     if let ExprKind::MethodCall(path, receiver, args, call_span) = recv.kind {
         if !args.iter().any(|e| e.span.from_expansion()) && !receiver.span.from_expansion() {
             let name = path.ident.name.as_str();
@@ -4248,7 +4252,7 @@ pub fn method_call<'tcx>(
 }
 
 impl<'tcx> LateLintPass<'tcx> for Methods {
-    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx hir::Expr<'_>) {
+    fn check_expr(&mut self, cx: &LateContext<'tcx>, expr: &'tcx Expr<'_>) {
         if expr.span.from_expansion() {
             return;
         }
@@ -4256,12 +4260,12 @@ impl<'tcx> LateLintPass<'tcx> for Methods {
         self.check_methods(cx, expr);
 
         match expr.kind {
-            hir::ExprKind::Call(func, args) => {
+            ExprKind::Call(func, args) => {
                 from_iter_instead_of_collect::check(cx, expr, args, func);
                 unnecessary_fallible_conversions::check_function(cx, expr, func);
                 manual_c_str_literals::check(cx, expr, func, args, &self.msrv);
             },
-            hir::ExprKind::MethodCall(method_call, receiver, args, _) => {
+            ExprKind::MethodCall(method_call, receiver, args, _) => {
                 let method_span = method_call.ident.span;
                 or_fun_call::check(cx, expr, method_span, method_call.ident.as_str(), receiver, args);
                 expect_fun_call::check(cx, expr, method_span, method_call.ident.as_str(), receiver, args);
@@ -4273,7 +4277,7 @@ impl<'tcx> LateLintPass<'tcx> for Methods {
                 single_char_pattern::check(cx, expr, method_call.ident.name, receiver, args);
                 unnecessary_to_owned::check(cx, expr, method_call.ident.name, receiver, args, &self.msrv);
             },
-            hir::ExprKind::Binary(op, lhs, rhs) if op.node == hir::BinOpKind::Eq || op.node == hir::BinOpKind::Ne => {
+            ExprKind::Binary(op, lhs, rhs) if op.node == hir::BinOpKind::Eq || op.node == hir::BinOpKind::Ne => {
                 let mut info = BinaryExprInfo {
                     expr,
                     chain: lhs,
@@ -4995,9 +4999,9 @@ fn check_is_some_is_none(cx: &LateContext<'_>, expr: &Expr<'_>, recv: &Expr<'_>,
 /// Used for `lint_binary_expr_with_method_call`.
 #[derive(Copy, Clone)]
 struct BinaryExprInfo<'a> {
-    expr: &'a hir::Expr<'a>,
-    chain: &'a hir::Expr<'a>,
-    other: &'a hir::Expr<'a>,
+    expr: &'a Expr<'a>,
+    chain: &'a Expr<'a>,
+    other: &'a Expr<'a>,
     eq: bool,
 }
 
