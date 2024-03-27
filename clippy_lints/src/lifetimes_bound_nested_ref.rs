@@ -262,22 +262,16 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn declared_lifetime_sym(&self, &lft_sym_opt: &Option<Symbol>) -> Option<Symbol> {
-        if let Some(lft_sym) = lft_sym_opt
-            && self.declared_lifetimes.contains(&lft_sym)
-        {
-            lft_sym_opt
-        } else {
-            None
-        }
+    fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
+        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains(&lft_sym))
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
-        self.declared_lifetime_sym(&region.get_name())
+        self.declared_lifetime_sym(region.get_name())
     }
 
     fn declared_lifetime_sym_bound_region(&self, bound_region: &BoundRegionKind) -> Option<Symbol> {
-        self.declared_lifetime_sym(&bound_region.get_name())
+        self.declared_lifetime_sym(bound_region.get_name())
     }
 
     fn collect_implied_lifetimes_bounds(&mut self, ty: Ty<'_>) {
@@ -332,35 +326,32 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 TyKind::Dynamic(existential_predicates, dyn_region, _dyn_kind) => {
-                    // dyn
-                    // FIXME: just looking for lifetime names here, little to idea about the actual meaning
+                    // dyn/dyn*
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                        for bound_exist_pred in existential_predicates {
-                            match bound_exist_pred.skip_binder() {
+                        for bound_existential_pred in existential_predicates {
+                            match bound_existential_pred.skip_binder() {
                                 ExistentialPredicate::Projection(exist_projection) => {
                                     for generic_arg in exist_projection.args {
-                                        if let Some(region) = generic_arg.as_region() {
-                                            if let Some(declared_lft_sym) = self.declared_lifetime_sym_region(region) {
-                                                self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
-                                            }
+                                        if let Some(ex_pred_proj_region) = generic_arg.as_region()
+                                            && let Some(declared_lft_sym) =
+                                                self.declared_lifetime_sym_region(ex_pred_proj_region)
+                                        {
+                                            self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
                                         }
                                     }
                                 },
                                 ExistentialPredicate::Trait(..) | ExistentialPredicate::AutoTrait(..) => {},
                             }
-                            for bound_var_kind in bound_exist_pred.bound_vars() {
+                            for bound_var_kind in bound_existential_pred.bound_vars() {
                                 match bound_var_kind {
                                     BoundVariableKind::Region(bound_region_kind) => {
-                                        if let Some(bound_lft_sym) =
+                                        if let Some(declared_lft_sym) =
                                             self.declared_lifetime_sym_bound_region(&bound_region_kind)
                                         {
-                                            self.add_implied_bound(bound_lft_sym, outlived_lft_sym);
+                                            self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
                                         }
                                     },
-                                    BoundVariableKind::Ty(_bound_ty) => {
-                                        // _bound_ty has no lifetime, do not add to outliving_tys
-                                    },
-                                    BoundVariableKind::Const => {},
+                                    BoundVariableKind::Ty(..) | BoundVariableKind::Const => {},
                                 }
                             }
                         }
