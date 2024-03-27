@@ -31,7 +31,7 @@ use rustc_hir::{Body, FnDecl, GenericArg, GenericBound, Generics, Item, ItemKind
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
-use rustc_middle::ty::{Region, Ty};
+use rustc_middle::ty::{BoundRegionKind, BoundVariableKind, ExistentialPredicate, Region, Ty};
 use rustc_session::impl_lint_pass;
 use rustc_span::{Span, Symbol};
 
@@ -262,8 +262,7 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn declared_lifetime_sym(&self, region: Region<'_>) -> Option<Symbol> {
-        let lft_sym_opt = region.get_name();
+    fn declared_lifetime_sym(&self, &lft_sym_opt: &Option<Symbol>) -> Option<Symbol> {
         if let Some(lft_sym) = lft_sym_opt
             && self.declared_lifetimes.contains(&lft_sym)
         {
@@ -271,6 +270,14 @@ impl ImpliedBoundsLinter {
         } else {
             None
         }
+    }
+
+    fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
+        self.declared_lifetime_sym(&region.get_name())
+    }
+
+    fn declared_lifetime_sym_bound_region(&self, bound_region: &BoundRegionKind) -> Option<Symbol> {
+        self.declared_lifetime_sym(&bound_region.get_name())
     }
 
     fn collect_implied_lifetimes_bounds(&mut self, ty: Ty<'_>) {
@@ -283,7 +290,7 @@ impl ImpliedBoundsLinter {
         while let Some(ty) = outliving_tys.pop() {
             match *ty.kind() {
                 TyKind::Ref(reference_region, referred_to_ty, _mutability) => {
-                    if let Some(declared_lft_sym) = self.declared_lifetime_sym(reference_region) {
+                    if let Some(declared_lft_sym) = self.declared_lifetime_sym_region(reference_region) {
                         if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
                             self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
                         }
@@ -317,10 +324,48 @@ impl ImpliedBoundsLinter {
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
                         for generic_arg in generic_args {
                             if let Some(arg_region) = generic_arg.as_region()
-                                && let Some(arg_lft_sym) = self.declared_lifetime_sym(arg_region)
+                                && let Some(arg_lft_sym) = self.declared_lifetime_sym_region(arg_region)
                             {
                                 self.add_implied_bound(arg_lft_sym, outlived_lft_sym);
                             }
+                        }
+                    }
+                },
+                TyKind::Dynamic(existential_predicates, dyn_region, _dyn_kind) => {
+                    // dyn
+                    // FIXME: just looking for lifetime names here, little to idea about the actual meaning
+                    if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
+                        for bound_exist_pred in existential_predicates {
+                            match bound_exist_pred.skip_binder() {
+                                ExistentialPredicate::Projection(exist_projection) => {
+                                    for generic_arg in exist_projection.args {
+                                        if let Some(region) = generic_arg.as_region() {
+                                            if let Some(declared_lft_sym) = self.declared_lifetime_sym_region(region) {
+                                                self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
+                                            }
+                                        }
+                                    }
+                                },
+                                ExistentialPredicate::Trait(..) | ExistentialPredicate::AutoTrait(..) => {},
+                            }
+                            for bound_var_kind in bound_exist_pred.bound_vars() {
+                                match bound_var_kind {
+                                    BoundVariableKind::Region(bound_region_kind) => {
+                                        if let Some(bound_lft_sym) =
+                                            self.declared_lifetime_sym_bound_region(&bound_region_kind)
+                                        {
+                                            self.add_implied_bound(bound_lft_sym, outlived_lft_sym);
+                                        }
+                                    },
+                                    BoundVariableKind::Ty(_bound_ty) => {
+                                        // _bound_ty has no lifetime, do not add to outliving_tys
+                                    },
+                                    BoundVariableKind::Const => {},
+                                }
+                            }
+                        }
+                        if let Some(declared_lft_sym) = self.declared_lifetime_sym_region(dyn_region) {
+                            self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
                         }
                     }
                 },
