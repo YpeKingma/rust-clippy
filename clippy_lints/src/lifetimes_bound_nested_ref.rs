@@ -263,7 +263,7 @@ impl ImpliedBoundsLinter {
     }
 
     fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains(&lft_sym))
+        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains(lft_sym))
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
