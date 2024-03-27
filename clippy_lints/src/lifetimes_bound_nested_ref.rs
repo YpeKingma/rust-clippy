@@ -27,11 +27,13 @@ use std::collections::BTreeSet;
 use clippy_utils::diagnostics::span_lint;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
-use rustc_hir::{Body, FnDecl, GenericArg, GenericBound, Generics, Item, ItemKind, ParamName, WherePredicate};
+use rustc_hir::{
+    Body, FnDecl, GenericArg as HirGenericArg, GenericBound, Generics, Item, ItemKind, ParamName, WherePredicate,
+};
 use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
-use rustc_middle::ty::{BoundRegionKind, BoundVariableKind, ExistentialPredicate, Region, Ty};
+use rustc_middle::ty::{BoundRegionKind, BoundVariableKind, ExistentialPredicate, GenericArg, List, Region, Ty};
 use rustc_session::impl_lint_pass;
 use rustc_span::{Span, Symbol};
 
@@ -156,7 +158,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         for path_segment in of_trait_ref.path.segments {
             if let Some(generic_args) = path_segment.args {
                 for generic_arg in generic_args.args {
-                    if let GenericArg::Type(hir_arg_ty) = generic_arg {
+                    if let HirGenericArg::Type(hir_arg_ty) = generic_arg {
                         let arg_ty = hir_ty_to_ty(cx.tcx, hir_arg_ty);
                         linter.collect_implied_lifetimes_bounds(arg_ty);
                     }
@@ -316,13 +318,7 @@ impl ImpliedBoundsLinter {
                 TyKind::Adt(_adt_def, generic_args) => {
                     // struct/union/enum
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                        for generic_arg in generic_args {
-                            if let Some(arg_region) = generic_arg.as_region()
-                                && let Some(arg_lft_sym) = self.declared_lifetime_sym_region(arg_region)
-                            {
-                                self.add_implied_bound(arg_lft_sym, outlived_lft_sym);
-                            }
-                        }
+                        self.check_generic_args(generic_args, outlived_lft_sym);
                     }
                 },
                 TyKind::Dynamic(existential_predicates, dyn_region, _dyn_kind) => {
@@ -331,14 +327,7 @@ impl ImpliedBoundsLinter {
                         for bound_existential_pred in existential_predicates {
                             match bound_existential_pred.skip_binder() {
                                 ExistentialPredicate::Projection(exist_projection) => {
-                                    for generic_arg in exist_projection.args {
-                                        if let Some(ex_pred_proj_region) = generic_arg.as_region()
-                                            && let Some(declared_lft_sym) =
-                                                self.declared_lifetime_sym_region(ex_pred_proj_region)
-                                        {
-                                            self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
-                                        }
-                                    }
+                                    self.check_generic_args(exist_projection.args, outlived_lft_sym);
                                 },
                                 ExistentialPredicate::Trait(..) | ExistentialPredicate::AutoTrait(..) => {},
                             }
@@ -361,6 +350,16 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 _ => {},
+            }
+        }
+    }
+
+    fn check_generic_args(&mut self, generic_args: &List<GenericArg<'_>>, outlived_lft_sym: Symbol) {
+        for generic_arg in generic_args {
+            if let Some(ex_pred_proj_region) = generic_arg.as_region()
+                && let Some(declared_lft_sym) = self.declared_lifetime_sym_region(ex_pred_proj_region)
+            {
+                self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
             }
         }
     }
