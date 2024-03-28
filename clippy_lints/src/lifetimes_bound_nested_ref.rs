@@ -390,7 +390,7 @@ impl ImpliedBoundsLinter {
 
     fn report_lints(self, cx: &LateContext<'_>) {
         for implied_bound in &self.implied_bounds {
-            if !self.declared_bounds_spans.contains_key(&implied_bound) {
+            if !self.declared_bounds_spans.contains_key(implied_bound) {
                 let declaration = implied_bound.as_bound_declaration();
                 let msg = &format!("missing lifetimes bound declaration: {declaration}");
                 if let Some(long_lft_decl_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
