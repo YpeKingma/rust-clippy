@@ -13,14 +13,15 @@
 ///     Issue 100051:
 ///     implied bounds from projections in impl header can be unsound
 ///     
-/// The lints here suggest to manually add such lifetime bounds in the hope that
+/// The lint here suggests to add such lifetime bounds in the hope that
 /// the unsoundness is avoided.
 ///
-/// There are also reverse lints that suggest to remove lifetime bounds
-/// that are implied by nested references. These lints are intended to be used only
-/// after the compiler handles these lifetime bounds correctly.
+/// There is also a reverse lint that suggest to remove lifetime bounds
+/// that are implied by nested references. This reverse lint is intended to be used only
+/// when the compiler has been fixed to handle these lifetime bounds correctly.
 ///
-/// All lints here are in the nursery category.
+/// The lints here are in the nursery category.
+/// 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -45,18 +46,20 @@ use rustc_hash::FxHashSet;
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks function arguments and return values that have a nested reference type with lifetimes,
-    /// and suggests to add the implied generic lifetime bounds.
-    /// Adding a lifetimes bound helps to avoid unsound code because this addition
+    /// For function arguments and return values and for implementation blocks
+    /// this checks for nested references with generic lifetimes
+    /// that imply a lifetimes bound because the inner reference must
+    /// outlive the outer reference.
+    /// This lint suggests to explicitly add such implicit lifetime bounds.
+    /// Adding such a lifetime bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
     ///
     /// ### Why is this bad?
-    /// This is described in issue 25860,
-    /// and as one case of unsoundness here:
+    /// The unsoundness is described here:
     /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
     ///
     /// ### Known problems
-    /// It is not known whether this covers all cases in issue 25860.
+    /// It is not known whether this covers all cases that might lead to unsoundness.
     ///
     /// ### Example, the `val_a` argument implies a lifetimes bound:
     /// ```no_run
@@ -71,21 +74,27 @@ declare_clippy_lint! {
     /// }
     /// ```
     #[clippy::version = "1.78.0"]
-    pub IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
+    pub EXPLICIT_LIFETIMES_BOUND,
     suspicious, // nursery,
-    "suggest to add generic lifetime bounds implied by nested references in function arguments and return value"
+    "declare generic lifetime bounds implied by nested references"
 }
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks function arguments and return values that have a nested reference type with lifetimes,
-    /// and suggests to remove generic lifetime bounds that are implied.
+    /// For function arguments and return values and implementation blocks
+    /// this lint checks for nested references with generic lifetimes
+    /// that imply a lifetimes bound because the inner reference must
+    /// outlive the outer reference.
+    /// This suggests to remove such implicit lifetime bounds in case
+    /// they are explicitly declared.
     ///
     /// ### Why is this bad?
-    /// Such generic lifetime bounds are redundant.
+    /// The declared lifetime bounds are superfluous.
     ///
     /// ### Known problems
-    /// Removing redundant lifetime bounds should only be done after the compiler
+    /// Removing such explicitly declared lifetime bounds may lead to the unsoundness described here:
+    /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
+    /// Removing these redundant lifetime bounds should only be done after the compiler
     /// has been fixed to deal correctly with implied lifetime bounds.
     ///
     /// ### Example, the `val_a` argument implies a lifetimes bound:
@@ -102,16 +111,16 @@ declare_clippy_lint! {
     /// ```
 
     #[clippy::version = "1.78.0"]
-    pub EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
+    pub IMPLICIT_LIFETIMES_BOUND,
     nursery,
-    "suggest to remove generic lifetime bounds implied by nested references in function arguments and return value"
+    "remove declared generic lifetime bounds implied by nested references"
 }
 
 pub struct LifetimesBoundNestedRef;
 
 impl_lint_pass!(LifetimesBoundNestedRef => [
-    IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
-    EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
+    EXPLICIT_LIFETIMES_BOUND,
+    IMPLICIT_LIFETIMES_BOUND,
 ]);
 
 impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
@@ -376,10 +385,10 @@ impl ImpliedBoundsLinter {
         for implied_bound in self.implied_bounds.difference(&self.declared_bounds) {
             span_lint(
                 cx,
-                IMPLICIT_LIFETIMES_BOUND_NESTED_REF,
+                EXPLICIT_LIFETIMES_BOUND,
                 self.generics_span,
                 &format!(
-                    "missing lifetime bound declaration: {}",
+                    "missing lifetimes bound declaration: {}",
                     implied_bound.as_bound_declaration()
                 ),
             );
@@ -388,10 +397,10 @@ impl ImpliedBoundsLinter {
         for declared_bound in self.declared_bounds.intersection(&self.implied_bounds) {
             span_lint(
                 cx,
-                EXPLICIT_LIFETIMES_BOUND_NESTED_REF,
+                IMPLICIT_LIFETIMES_BOUND,
                 self.generics_span,
                 &format!(
-                    "declared lifetime bound is implied: {}",
+                    "declared lifetimes bound is implied: {}",
                     declared_bound.as_bound_declaration()
                 ),
             );
