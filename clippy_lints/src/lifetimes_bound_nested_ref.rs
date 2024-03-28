@@ -386,7 +386,7 @@ impl ImpliedBoundsLinter {
     }
 
     fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
-        self.declared_lifetimes_spans.get(&lft_sym).map(|&sp| sp)
+        self.declared_lifetimes_spans.get(&lft_sym).copied()
     }
 
     fn report_lints(self, cx: &LateContext<'_>) {
