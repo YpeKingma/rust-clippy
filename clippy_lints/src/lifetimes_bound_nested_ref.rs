@@ -75,7 +75,7 @@ declare_clippy_lint! {
     /// ```
     #[clippy::version = "1.78.0"]
     pub EXPLICIT_LIFETIMES_BOUND,
-    suspicious, // nursery,
+    nursery,
     "declare generic lifetime bounds implied by nested references"
 }
 

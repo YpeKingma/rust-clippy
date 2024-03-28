@@ -1,4 +1,4 @@
-// #![warn(clippy::explicit_lifetimes_bound)]
+#![warn(clippy::explicit_lifetimes_bound)]
 #![warn(clippy::implicit_lifetimes_bound)]
 
 use core::mem::MaybeUninit;
