@@ -296,12 +296,11 @@ impl ImpliedBoundsLinter {
         while let Some(ty) = outliving_tys.pop() {
             match *ty.kind() {
                 TyKind::Ref(reference_region, referred_to_ty, _mutability) => {
-                    if let Some(declared_lft_sym) = self.declared_lifetime_sym_region(reference_region) {
+                    if let Some(region_sym) = self.declared_lifetime_sym_region(reference_region) {
                         if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                            self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
+                            self.add_implied_bound(region_sym, outlived_lft_sym);
                         }
-                        // ref_lft_sym should be outlived by referred_to_ty
-                        self.collect_nested_ref_bounds(referred_to_ty, Some(declared_lft_sym));
+                        self.collect_nested_ref_bounds(referred_to_ty, Some(region_sym));
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
@@ -369,8 +368,8 @@ impl ImpliedBoundsLinter {
 
     fn collect_bounds_generic_args(&mut self, generic_args: &List<GenericArg<'_>>, outlived_lft_sym: Symbol) {
         for generic_arg in generic_args {
-            if let Some(ex_pred_proj_region) = generic_arg.as_region()
-                && let Some(declared_lft_sym) = self.declared_lifetime_sym_region(ex_pred_proj_region)
+            if let Some(region) = generic_arg.as_region()
+                && let Some(declared_lft_sym) = self.declared_lifetime_sym_region(region)
             {
                 self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
             }
@@ -394,11 +393,11 @@ impl ImpliedBoundsLinter {
             if !self.declared_bounds_spans.contains_key(&implied_bound) {
                 let declaration = implied_bound.as_bound_declaration();
                 let msg = &format!("missing lifetimes bound declaration: {declaration}");
-                if let Some(long_lft_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
+                if let Some(long_lft_decl_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
                     span_lint_and_sugg(
                         cx,
                         EXPLICIT_LIFETIMES_BOUND,
-                        long_lft_span,
+                        long_lft_decl_span,
                         msg,
                         "try",
                         declaration,
@@ -412,6 +411,7 @@ impl ImpliedBoundsLinter {
 
         for (declared_bound, span) in self.declared_bounds_spans {
             if self.implied_bounds.contains(&declared_bound) {
+                let help_span = None; // the span of the nested ref would be better
                 span_lint_and_help(
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
@@ -420,7 +420,7 @@ impl ImpliedBoundsLinter {
                         "declared lifetimes bound is implied: {}",
                         declared_bound.as_bound_declaration(),
                     ),
-                    None,
+                    help_span,
                     "consider removing this lifetimes bound",
                 );
             }
