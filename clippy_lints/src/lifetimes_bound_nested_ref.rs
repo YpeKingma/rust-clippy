@@ -21,7 +21,6 @@
 /// when the compiler has been fixed to handle these lifetime bounds correctly.
 ///
 /// The lints here are in the nursery category.
-/// 
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -306,14 +305,17 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 TyKind::Tuple(tuple_part_tys) => {
+                    // 20240328: not needed to detect reported issues
                     for tuple_part_ty in tuple_part_tys {
                         outliving_tys.push(tuple_part_ty);
                     }
                 },
                 TyKind::Array(element_ty, _length) => {
+                    // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 TyKind::Slice(element_ty) => {
+                    // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 TyKind::Alias(AliasKind::Projection, alias_ty) => {
@@ -325,18 +327,18 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 TyKind::Adt(_adt_def, generic_args) => {
-                    // struct/union/enum
+                    // struct/union/enum, 20240328: not needed to detect reported issues
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                        self.check_generic_args(generic_args, outlived_lft_sym);
+                        self.collect_bounds_generic_args(generic_args, outlived_lft_sym);
                     }
                 },
                 TyKind::Dynamic(existential_predicates, dyn_region, _dyn_kind) => {
-                    // dyn/dyn*
+                    // dyn, 20240328: not needed to detect reported issues
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
                         for bound_existential_pred in existential_predicates {
                             match bound_existential_pred.skip_binder() {
                                 ExistentialPredicate::Projection(exist_projection) => {
-                                    self.check_generic_args(exist_projection.args, outlived_lft_sym);
+                                    self.collect_bounds_generic_args(exist_projection.args, outlived_lft_sym);
                                 },
                                 ExistentialPredicate::Trait(..) | ExistentialPredicate::AutoTrait(..) => {},
                             }
@@ -363,7 +365,7 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn check_generic_args(&mut self, generic_args: &List<GenericArg<'_>>, outlived_lft_sym: Symbol) {
+    fn collect_bounds_generic_args(&mut self, generic_args: &List<GenericArg<'_>>, outlived_lft_sym: Symbol) {
         for generic_arg in generic_args {
             if let Some(ex_pred_proj_region) = generic_arg.as_region()
                 && let Some(declared_lft_sym) = self.declared_lifetime_sym_region(ex_pred_proj_region)
