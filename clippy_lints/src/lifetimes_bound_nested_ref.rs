@@ -24,7 +24,8 @@
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
-use clippy_utils::diagnostics::span_lint;
+use clippy_utils::diagnostics::{span_lint, span_lint_and_sugg};
+use rustc_errors::Applicability;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
 use rustc_hir::{
@@ -41,7 +42,7 @@ extern crate rustc_type_ir;
 use rustc_type_ir::AliasKind;
 
 extern crate rustc_hash;
-use rustc_hash::FxHashSet;
+use rustc_hash::FxHashMap;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -49,8 +50,8 @@ declare_clippy_lint! {
     /// this checks for nested references with generic lifetimes
     /// that imply a lifetimes bound because the inner reference must
     /// outlive the outer reference.
-    /// This lint suggests to explicitly add such implicit lifetime bounds.
-    /// Adding such a lifetime bound helps to avoid unsound code because this addition
+    /// This suggests to declare such implicit lifetime bounds.
+    /// Adding such a bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
     ///
     /// ### Why is this bad?
@@ -81,11 +82,11 @@ declare_clippy_lint! {
 declare_clippy_lint! {
     /// ### What it does
     /// For function arguments and return values and implementation blocks
-    /// this lint checks for nested references with generic lifetimes
+    /// this checks for nested references with generic lifetimes
     /// that imply a lifetimes bound because the inner reference must
     /// outlive the outer reference.
-    /// This suggests to remove such implicit lifetime bounds in case
-    /// they are explicitly declared.
+    /// This suggests to remove such implicit lifetime bounds when
+    /// they are declared.
     ///
     /// ### Why is this bad?
     /// The declared lifetime bounds are superfluous.
@@ -182,26 +183,26 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
 
 #[derive(Debug)]
 struct BoundLftPair {
-    long_lft: String,
-    outlived_lft: String,
+    long_lft_sym: Symbol,
+    outlived_lft_sym: Symbol,
 }
 
 impl BoundLftPair {
     fn new(long_lft_sym: Symbol, outlived_lft_sym: Symbol) -> Self {
         BoundLftPair {
-            long_lft: long_lft_sym.to_ident_string(),
-            outlived_lft: outlived_lft_sym.to_ident_string(),
+            long_lft_sym,
+            outlived_lft_sym,
         }
     }
 
     fn as_bound_declaration(&self) -> String {
-        format!("{}: {}", self.long_lft, self.outlived_lft,)
+        format!("{}: {}", self.long_lft_sym, self.outlived_lft_sym)
     }
 }
 
 impl PartialEq for BoundLftPair {
     fn eq(&self, other: &Self) -> bool {
-        self.long_lft.eq(&other.long_lft) && self.outlived_lft.eq(&other.outlived_lft)
+        self.long_lft_sym.eq(&other.long_lft_sym) && self.outlived_lft_sym.eq(&other.outlived_lft_sym)
     }
 }
 
@@ -215,21 +216,21 @@ impl PartialOrd for BoundLftPair {
 
 impl Ord for BoundLftPair {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.long_lft.cmp(&other.long_lft) {
+        match self.long_lft_sym.cmp(&other.long_lft_sym) {
             Ordering::Less => Ordering::Less,
             Ordering::Greater => Ordering::Greater,
-            Ordering::Equal => self.outlived_lft.cmp(&other.outlived_lft),
+            Ordering::Equal => self.outlived_lft_sym.cmp(&other.outlived_lft_sym),
         }
     }
 }
 
-fn get_declared_lifetimes(generics: &Generics<'_>) -> FxHashSet<Symbol> {
+fn get_declared_lifetimes(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
     generics
         .params
         .iter()
         .filter_map(|gp| {
             if let ParamName::Plain(ident) = gp.name {
-                Some(ident.name)
+                Some((ident.name, gp.span))
             } else {
                 None
             }
@@ -256,14 +257,14 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
 }
 
 struct ImpliedBoundsLinter {
-    declared_lifetimes: FxHashSet<Symbol>,
+    declared_lifetimes: FxHashMap<Symbol, Span>,
     generics_span: Span,                     // for span_lint reporting
     declared_bounds: BTreeSet<BoundLftPair>, // BTreeSet for consistent reporting order
     implied_bounds: BTreeSet<BoundLftPair>,  // BTreeSet for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
-    fn new(declared_lifetimes: FxHashSet<Symbol>, generics: &Generics<'_>) -> Self {
+    fn new(declared_lifetimes: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
         ImpliedBoundsLinter {
             declared_lifetimes,
             declared_bounds: get_declared_bounds(generics),
@@ -273,7 +274,7 @@ impl ImpliedBoundsLinter {
     }
 
     fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains(lft_sym))
+        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains_key(lft_sym))
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
@@ -383,17 +384,36 @@ impl ImpliedBoundsLinter {
         }
     }
 
+    fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
+        self.declared_lifetimes.get(&lft_sym).map(|&sp| sp)
+    }
+
     fn report_lints(self, cx: &LateContext<'_>) {
         for implied_bound in self.implied_bounds.difference(&self.declared_bounds) {
-            span_lint(
-                cx,
-                EXPLICIT_LIFETIMES_BOUND,
-                self.generics_span,
-                &format!(
-                    "missing lifetimes bound declaration: {}",
-                    implied_bound.as_bound_declaration()
-                ),
-            );
+            if let Some(long_lft_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
+                span_lint_and_sugg(
+                    cx,
+                    EXPLICIT_LIFETIMES_BOUND,
+                    long_lft_span,
+                    &format!(
+                        "missing lifetimes bound declaration: {}",
+                        implied_bound.as_bound_declaration()
+                    ),
+                    "try:",
+                    implied_bound.as_bound_declaration(),
+                    Applicability::MachineApplicable,
+                );
+            } else {
+                span_lint(
+                    cx,
+                    EXPLICIT_LIFETIMES_BOUND,
+                    self.generics_span,
+                    &format!(
+                        "missing lifetimes bound declaration: {}",
+                        implied_bound.as_bound_declaration()
+                    ),
+                );
+            }
         }
 
         for declared_bound in self.declared_bounds.intersection(&self.implied_bounds) {
