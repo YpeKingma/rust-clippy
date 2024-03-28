@@ -22,9 +22,9 @@
 ///
 /// The lints here are in the nursery category.
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use clippy_utils::diagnostics::{span_lint, span_lint_and_sugg};
+use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_sugg};
 use rustc_errors::Applicability;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
@@ -238,15 +238,16 @@ fn get_declared_lifetimes(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
         .collect()
 }
 
-fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
-    let mut declared_bounds = BTreeSet::new();
+fn get_declared_bounds(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> {
+    let mut declared_bounds = BTreeMap::new();
     for where_predicate in generics.predicates {
         match where_predicate {
             WherePredicate::RegionPredicate(region_predicate) => {
                 let long_lft_sym = region_predicate.lifetime.ident.name;
+                let long_lft_span = region_predicate.span;
                 for generic_bound in region_predicate.bounds {
                     if let GenericBound::Outlives(outlived_lft) = *generic_bound {
-                        declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name));
+                        declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), long_lft_span);
                     }
                 }
             },
@@ -258,9 +259,9 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeSet<BoundLftPair> {
 
 struct ImpliedBoundsLinter {
     declared_lifetimes: FxHashMap<Symbol, Span>,
-    generics_span: Span,                     // for span_lint reporting
-    declared_bounds: BTreeSet<BoundLftPair>, // BTreeSet for consistent reporting order
-    implied_bounds: BTreeSet<BoundLftPair>,  // BTreeSet for consistent reporting order
+    generics_span: Span,
+    declared_bounds: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
+    implied_bounds: BTreeSet<BoundLftPair>,        // BTree for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
@@ -389,43 +390,49 @@ impl ImpliedBoundsLinter {
     }
 
     fn report_lints(self, cx: &LateContext<'_>) {
-        for implied_bound in self.implied_bounds.difference(&self.declared_bounds) {
-            if let Some(long_lft_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
-                span_lint_and_sugg(
-                    cx,
-                    EXPLICIT_LIFETIMES_BOUND,
-                    long_lft_span,
-                    &format!(
-                        "missing lifetimes bound declaration: {}",
-                        implied_bound.as_bound_declaration()
-                    ),
-                    "try:",
-                    implied_bound.as_bound_declaration(),
-                    Applicability::MachineApplicable,
-                );
-            } else {
-                span_lint(
-                    cx,
-                    EXPLICIT_LIFETIMES_BOUND,
-                    self.generics_span,
-                    &format!(
-                        "missing lifetimes bound declaration: {}",
-                        implied_bound.as_bound_declaration()
-                    ),
-                );
+        for implied_bound in &self.implied_bounds {
+            if !self.declared_bounds.contains_key(&implied_bound) {
+                if let Some(long_lft_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
+                    span_lint_and_sugg(
+                        cx,
+                        EXPLICIT_LIFETIMES_BOUND,
+                        long_lft_span,
+                        &format!(
+                            "missing lifetimes bound declaration: {}",
+                            implied_bound.as_bound_declaration()
+                        ),
+                        "try",
+                        implied_bound.as_bound_declaration(),
+                        Applicability::MachineApplicable,
+                    );
+                } else {
+                    span_lint(
+                        cx,
+                        EXPLICIT_LIFETIMES_BOUND,
+                        self.generics_span,
+                        &format!(
+                            "missing lifetimes bound declaration: {}",
+                            implied_bound.as_bound_declaration()
+                        ),
+                    );
+                }
             }
         }
 
-        for declared_bound in self.declared_bounds.intersection(&self.implied_bounds) {
-            span_lint(
-                cx,
-                IMPLICIT_LIFETIMES_BOUND,
-                self.generics_span,
-                &format!(
-                    "declared lifetimes bound is implied: {}",
-                    declared_bound.as_bound_declaration()
-                ),
-            );
+        for (declared_bound, span) in self.declared_bounds {
+            if self.implied_bounds.contains(&declared_bound) {
+                span_lint_and_help(
+                    cx,
+                    IMPLICIT_LIFETIMES_BOUND,
+                    span,
+                    &format!(
+                        "declared lifetimes bound is implied: {}",
+                        declared_bound.as_bound_declaration(),
+                    ),
+                    None,
+                    "consider removing this lifetimes bound",
+                );
+            }
         }
     }
 }
