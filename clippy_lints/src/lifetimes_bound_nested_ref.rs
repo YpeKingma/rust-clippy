@@ -137,7 +137,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
-        let declared_lifetimes = get_declared_lifetimes(generics);
+        let declared_lifetimes = get_declared_lifetimes_spans(generics);
         if declared_lifetimes.len() <= 1 {
             return;
         }
@@ -159,7 +159,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let Some(of_trait_ref) = impl_item.of_trait else {
             return;
         };
-        let declared_lifetimes = get_declared_lifetimes(impl_item.generics);
+        let declared_lifetimes = get_declared_lifetimes_spans(impl_item.generics);
         if declared_lifetimes.len() <= 1 {
             return;
         }
@@ -224,7 +224,7 @@ impl Ord for BoundLftPair {
     }
 }
 
-fn get_declared_lifetimes(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
+fn get_declared_lifetimes_spans(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
     generics
         .params
         .iter()
@@ -238,7 +238,7 @@ fn get_declared_lifetimes(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
         .collect()
 }
 
-fn get_declared_bounds(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> {
+fn get_declared_bounds_spans(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> {
     let mut declared_bounds = BTreeMap::new();
     for where_predicate in generics.predicates {
         match where_predicate {
@@ -258,24 +258,24 @@ fn get_declared_bounds(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> 
 }
 
 struct ImpliedBoundsLinter {
-    declared_lifetimes: FxHashMap<Symbol, Span>,
+    declared_lifetimes_spans: FxHashMap<Symbol, Span>,
     generics_span: Span,
-    declared_bounds: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
-    implied_bounds: BTreeSet<BoundLftPair>,        // BTree for consistent reporting order
+    declared_bounds_spans: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
+    implied_bounds: BTreeSet<BoundLftPair>,              // BTree for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
-    fn new(declared_lifetimes: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
+    fn new(declared_lifetimes_spans: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
         ImpliedBoundsLinter {
-            declared_lifetimes,
-            declared_bounds: get_declared_bounds(generics),
+            declared_lifetimes_spans,
+            declared_bounds_spans: get_declared_bounds_spans(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
         }
     }
 
     fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes.contains_key(lft_sym))
+        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes_spans.contains_key(lft_sym))
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
@@ -386,40 +386,31 @@ impl ImpliedBoundsLinter {
     }
 
     fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
-        self.declared_lifetimes.get(&lft_sym).map(|&sp| sp)
+        self.declared_lifetimes_spans.get(&lft_sym).map(|&sp| sp)
     }
 
     fn report_lints(self, cx: &LateContext<'_>) {
         for implied_bound in &self.implied_bounds {
-            if !self.declared_bounds.contains_key(&implied_bound) {
+            if !self.declared_bounds_spans.contains_key(&implied_bound) {
+                let declaration = implied_bound.as_bound_declaration();
+                let msg = &format!("missing lifetimes bound declaration: {declaration}");
                 if let Some(long_lft_span) = self.get_declared_lifetime_span(implied_bound.long_lft_sym) {
                     span_lint_and_sugg(
                         cx,
                         EXPLICIT_LIFETIMES_BOUND,
                         long_lft_span,
-                        &format!(
-                            "missing lifetimes bound declaration: {}",
-                            implied_bound.as_bound_declaration()
-                        ),
+                        msg,
                         "try",
-                        implied_bound.as_bound_declaration(),
+                        declaration,
                         Applicability::MachineApplicable,
                     );
                 } else {
-                    span_lint(
-                        cx,
-                        EXPLICIT_LIFETIMES_BOUND,
-                        self.generics_span,
-                        &format!(
-                            "missing lifetimes bound declaration: {}",
-                            implied_bound.as_bound_declaration()
-                        ),
-                    );
+                    span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg);
                 }
             }
         }
 
-        for (declared_bound, span) in self.declared_bounds {
+        for (declared_bound, span) in self.declared_bounds_spans {
             if self.implied_bounds.contains(&declared_bound) {
                 span_lint_and_help(
                     cx,
