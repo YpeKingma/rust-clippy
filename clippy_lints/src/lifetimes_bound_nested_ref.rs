@@ -244,10 +244,12 @@ fn get_declared_bounds_spans(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, 
         match where_predicate {
             WherePredicate::RegionPredicate(region_predicate) => {
                 let long_lft_sym = region_predicate.lifetime.ident.name;
-                let long_lft_span = region_predicate.span;
                 for generic_bound in region_predicate.bounds {
                     if let GenericBound::Outlives(outlived_lft) = *generic_bound {
-                        declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), long_lft_span);
+                        declared_bounds.insert(
+                            BoundLftPair::new(long_lft_sym, outlived_lft.ident.name),
+                            region_predicate.span,
+                        );
                     }
                 }
             },
@@ -409,13 +411,13 @@ impl ImpliedBoundsLinter {
             }
         }
 
-        for (declared_bound, span) in self.declared_bounds_spans {
+        for (declared_bound, predicate_span) in self.declared_bounds_spans {
             if self.implied_bounds.contains(&declared_bound) {
                 let help_span = None; // the span of the nested ref would be better
                 span_lint_and_help(
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
-                    span,
+                    predicate_span,
                     &format!(
                         "declared lifetimes bound is implied: {}",
                         declared_bound.as_bound_declaration(),
