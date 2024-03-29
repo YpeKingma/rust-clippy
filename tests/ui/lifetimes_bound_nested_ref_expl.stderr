@@ -1,5 +1,5 @@
 error: missing lifetimes bound declaration: 'lftb: 'lfta
-  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:6:37
+  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:5:37
    |
 LL | pub fn lifetime_translator_1<'lfta, 'lftb, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
    |                                     ^^^^^ help: try: `'lftb: 'lfta`
@@ -8,25 +8,25 @@ LL | pub fn lifetime_translator_1<'lfta, 'lftb, T>(val_a: &'lfta &'lftb T, _val_
    = help: to override `-D warnings` add `#[allow(clippy::explicit_lifetimes_bound)]`
 
 error: missing lifetimes bound declaration: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:26:6
+  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:25:6
    |
 LL | impl<'a, 'b> Subtrait<'a, 'b, &'b &'a ()> for MyStruct {}
    |      ^^ help: try: `'a: 'b`
 
 error: missing lifetimes bound declaration: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:42:6
+  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:41:6
    |
 LL | impl<'a, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
    |      ^^ help: try: `'a: 'b`
 
 error: missing lifetimes bound declaration: 'b: 'a
-  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:50:32
+  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:49:32
    |
 LL | unsafe fn deinit_slice_mut<'a, 'b, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
    |                                ^^ help: try: `'b: 'a`
 
 error: missing lifetimes bound declaration: 'a: 'b
-  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:65:21
+  --> tests/ui/lifetimes_bound_nested_ref_expl.rs:64:21
    |
 LL | fn test_unnamed_ref<'a, 'b>(w1: &'b mut &mut Thing1<'a>, w2: &mut Thing2<'b>) -> &'a u8 {
    |                     ^^ help: try: `'a: 'b`

@@ -1,4 +1,3 @@
-//@no-rustfix
 #![warn(clippy::explicit_lifetimes_bound)]
 use core::mem::MaybeUninit;
 
