@@ -375,11 +375,18 @@ impl ImpliedBoundsLinter {
     fn collect_nested_ref_bounds_ast(&mut self, ty: &rustc_ast::ast::Ty, outlived_lft_sym_opt: Option<Symbol>) {
         use rustc_ast::ast::TyKind::*;
         match &ty.kind {
-            Ref(lifetime_opt, mut_ty) => {
+            Ref(lifetime_opt, referred_to_mut_ty) => {
+                let referred_to_ty = &referred_to_mut_ty.ty;
                 if let Some(lifetime) = lifetime_opt {
-
+                    dbg!(lifetime.ident.span);
+                    let lifetime_sym = lifetime.ident.name;
+                    if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
+                        self.add_implied_bound(lifetime.ident.name, outlived_lft_sym);
+                    }
+                    self.collect_nested_ref_bounds_ast(referred_to_ty, Some(lifetime_sym));
+                } else {
+                    self.collect_nested_ref_bounds_ast(referred_to_ty, outlived_lft_sym_opt);
                 }
-                dbg!(&ty);
             },
             Slice(element_ty) => {
                 self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
@@ -388,22 +395,31 @@ impl ImpliedBoundsLinter {
                 self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
             },
             Tup(tuple_tys) => {
+                for tuple_ty in tuple_tys {
+                    self.collect_nested_ref_bounds_ast(tuple_ty, outlived_lft_sym_opt);
+                }
+            },
+            TraitObject(generic_bounds, _trait_object_syntax) => {
+                // FIXME: add self.collect_nested_ref_generic_bounds_ast(generic_bounds, outlived_lft_opt)
+                for generic_bound in generic_bounds {
+                    use rustc_ast::ast::GenericBound::*;
+                    match generic_bound {
+                        Trait(_poly_trait_ref, _trait_bound_modifier) => {
+                            dbg!(generic_bound);
+                        },
+                        Outlives(_lifetime) => {
+                            dbg!(generic_bound);
+                        },
+                    }
+                }
                 dbg!(&ty);
             },
-            AnonStruct(_node_id, field_defs) | AnonUnion(_node_id, field_defs) => {
+            ImplTrait(_node_id, _generic_bounds) => {
+                // FIXME: use collect_nested_ref_generic_bounds_ast
                 dbg!(&ty);
             },
-            Path(squalified_self_opt, path) => {
-                dbg!(&ty);
-            },
-            TraitObject(generic_bounds, trait_object_syntax) => {
-                dbg!(&ty);
-            },
-            ImplTrait(node_id, generic_bounds) => {
-                dbg!(&ty);
-            },
-            Ptr(..) | BareFn(..) | Never | Typeof(..) | Infer | ImplicitSelf | MacCall(..) | CVarArgs | Dummy
-            | Err(..) | Paren(..) => {},
+            AnonStruct(..) | AnonUnion(..) | BareFn(..) | CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer
+            | MacCall(..) | Never | Paren(..) | Path(..) | Ptr(..) | Typeof(..) => {},
         }
     }
 
