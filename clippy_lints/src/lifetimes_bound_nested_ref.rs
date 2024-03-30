@@ -25,6 +25,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_sugg};
+use rustc_ast::GenericParamKind;
 use rustc_errors::Applicability;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
@@ -32,7 +33,7 @@ use rustc_hir::{
     Body, FnDecl, GenericArg as HirGenericArg, GenericBound, Generics, Item, ItemKind, ParamName, WherePredicate,
 };
 use rustc_hir_analysis::hir_ty_to_ty;
-use rustc_lint::{LateContext, LateLintPass};
+use rustc_lint::{EarlyLintPass, LateContext, LateLintPass};
 use rustc_middle::ty::ty_kind::TyKind;
 use rustc_middle::ty::{BoundRegionKind, BoundVariableKind, ExistentialPredicate, GenericArg, List, Region, Ty};
 use rustc_session::impl_lint_pass;
@@ -42,7 +43,7 @@ extern crate rustc_type_ir;
 use rustc_type_ir::AliasKind;
 
 extern crate rustc_hash;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 declare_clippy_lint! {
     /// ### What it does
@@ -123,6 +124,30 @@ impl_lint_pass!(LifetimesBoundNestedRef => [
     IMPLICIT_LIFETIMES_BOUND,
 ]);
 
+impl EarlyLintPass for LifetimesBoundNestedRef {
+    /// For issue 25860
+    fn check_fn(
+        &mut self,
+        _early_context: &rustc_lint::EarlyContext<'_>,
+        fn_kind: rustc_ast::visit::FnKind<'_>,
+        _fn_span: Span,
+        node_id: rustc_ast::NodeId,
+    ) {
+        dbg!(node_id);
+        let rustc_ast::visit::FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
+            return;
+        };
+        let declared_lifetimes_ast = get_declared_lifetimes_spans_ast(generics);
+        dbg!(&declared_lifetimes_ast);
+        if declared_lifetimes_ast.len() <= 1 {
+            return;
+        }
+        let linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
+        dbg!(linter);
+        dbg!(fn_sig);
+    }
+}
+
 impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     /// For issue 25860
     fn check_fn<'tcx2>(
@@ -137,11 +162,11 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let FnKind::ItemFn(_ident, generics, _fn_header) = fn_kind else {
             return;
         };
-        let declared_lifetimes = get_declared_lifetimes_spans(generics);
+        let declared_lifetimes = get_declared_lifetimes_spans_hir(generics);
         if declared_lifetimes.len() <= 1 {
             return;
         }
-        let mut linter = ImpliedBoundsLinter::new(declared_lifetimes, generics);
+        let mut linter = ImpliedBoundsLinter::new_hir(declared_lifetimes, generics);
         // collect bounds implied by nested references in input types and output type
         let fn_sig = cx.tcx.fn_sig(local_def_id).skip_binder().skip_binder();
         for input_ty in fn_sig.inputs() {
@@ -159,11 +184,11 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         let Some(of_trait_ref) = impl_item.of_trait else {
             return;
         };
-        let declared_lifetimes = get_declared_lifetimes_spans(impl_item.generics);
+        let declared_lifetimes = get_declared_lifetimes_spans_hir(impl_item.generics);
         if declared_lifetimes.len() <= 1 {
             return;
         }
-        let mut linter = ImpliedBoundsLinter::new(declared_lifetimes, impl_item.generics);
+        let mut linter = ImpliedBoundsLinter::new_hir(declared_lifetimes, impl_item.generics);
         for path_segment in of_trait_ref.path.segments {
             if let Some(generic_args) = path_segment.args {
                 for generic_arg in generic_args.args {
@@ -224,7 +249,21 @@ impl Ord for BoundLftPair {
     }
 }
 
-fn get_declared_lifetimes_spans(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
+fn get_declared_lifetimes_spans_ast(generics: &rustc_ast::Generics) -> FxHashSet<Symbol> {
+    generics
+        .params
+        .iter()
+        .filter_map(|gp| {
+            if let GenericParamKind::Lifetime = gp.kind {
+                Some(gp.ident.name)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn get_declared_lifetimes_spans_hir(generics: &Generics<'_>) -> FxHashMap<Symbol, Span> {
     generics
         .params
         .iter()
@@ -238,7 +277,22 @@ fn get_declared_lifetimes_spans(generics: &Generics<'_>) -> FxHashMap<Symbol, Sp
         .collect()
 }
 
-fn get_declared_bounds_spans(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> {
+fn get_declared_bounds_spans_ast(generics: &rustc_ast::Generics) -> BTreeMap<BoundLftPair, Span> {
+    let mut declared_bounds = BTreeMap::new();
+    generics.where_clause.predicates.iter().for_each(|p| {
+        if let rustc_ast::WherePredicate::RegionPredicate(wrp) = p {
+            let long_lft_sym = wrp.lifetime.ident.name;
+            for bound in &wrp.bounds {
+                if let rustc_ast::GenericBound::Outlives(outlived_lft) = bound {
+                    declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), wrp.span);
+                }
+            }
+        }
+    });
+    declared_bounds
+}
+
+fn get_declared_bounds_spans_hir(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, Span> {
     let mut declared_bounds = BTreeMap::new();
     for where_predicate in generics.predicates {
         match where_predicate {
@@ -259,25 +313,44 @@ fn get_declared_bounds_spans(generics: &Generics<'_>) -> BTreeMap<BoundLftPair, 
     declared_bounds
 }
 
+#[derive(Debug)]
 struct ImpliedBoundsLinter {
-    declared_lifetimes_spans: FxHashMap<Symbol, Span>,
+    declared_lifetimes_spans: Option<FxHashMap<Symbol, Span>>,
+    declared_lifetimes_spans_ast: Option<FxHashSet<Symbol>>,
     generics_span: Span,
     declared_bounds_spans: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
     implied_bounds: BTreeSet<BoundLftPair>,              // BTree for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
-    fn new(declared_lifetimes_spans: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
+    fn new_ast(declared_lifetimes_spans_ast: FxHashSet<Symbol>, generics: &rustc_ast::Generics) -> Self {
         ImpliedBoundsLinter {
-            declared_lifetimes_spans,
-            declared_bounds_spans: get_declared_bounds_spans(generics),
+            declared_lifetimes_spans: None,
+            declared_lifetimes_spans_ast: Some(declared_lifetimes_spans_ast),
+            declared_bounds_spans: get_declared_bounds_spans_ast(generics),
+            generics_span: generics.span,
+            implied_bounds: BTreeSet::new(),
+        }
+    }
+
+    fn new_hir(declared_lifetimes_spans: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
+        ImpliedBoundsLinter {
+            declared_lifetimes_spans_ast: None,
+            declared_lifetimes_spans: Some(declared_lifetimes_spans),
+            declared_bounds_spans: get_declared_bounds_spans_hir(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
         }
     }
 
     fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes_spans.contains_key(lft_sym))
+        if let Some(declared_lifetimes_spans) = &self.declared_lifetimes_spans {
+            lft_sym_opt.filter(|lft_sym| declared_lifetimes_spans.contains_key(lft_sym))
+        } else if let Some(declared_lifetimes_spans_ast) = &self.declared_lifetimes_spans_ast {
+            lft_sym_opt.filter(|lft_sym| declared_lifetimes_spans_ast.contains(lft_sym))
+        } else {
+            None
+        }
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
@@ -387,7 +460,11 @@ impl ImpliedBoundsLinter {
     }
 
     fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
-        self.declared_lifetimes_spans.get(&lft_sym).copied()
+        if let Some(declared_lifetimes_spans) = &self.declared_lifetimes_spans {
+            declared_lifetimes_spans.get(&lft_sym).copied()
+        } else {
+            None
+        }
     }
 
     fn report_lints(self, cx: &LateContext<'_>) {
