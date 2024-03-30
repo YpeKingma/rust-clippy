@@ -142,9 +142,16 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         if declared_lifetimes_ast.len() <= 1 {
             return;
         }
-        let linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
+        let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
+        for param in &fn_sig.decl.inputs {
+            dbg!(&param.ty);
+            linter.collect_implied_lifetime_bounds_ast(&param.ty);
+        }
+        if let rustc_ast::ast::FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
+            dbg!(ret_ty);
+            linter.collect_implied_lifetime_bounds_ast(ret_ty);
+        }
         dbg!(linter);
-        dbg!(fn_sig);
     }
 }
 
@@ -170,9 +177,9 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         // collect bounds implied by nested references in input types and output type
         let fn_sig = cx.tcx.fn_sig(local_def_id).skip_binder().skip_binder();
         for input_ty in fn_sig.inputs() {
-            linter.collect_implied_lifetimes_bounds(*input_ty);
+            linter.collect_implied_lifetime_bounds(*input_ty);
         }
-        linter.collect_implied_lifetimes_bounds(fn_sig.output());
+        linter.collect_implied_lifetime_bounds(fn_sig.output());
         linter.report_lints(cx);
     }
 
@@ -194,14 +201,14 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
                 for generic_arg in generic_args.args {
                     if let HirGenericArg::Type(hir_arg_ty) = generic_arg {
                         let arg_ty = hir_ty_to_ty(cx.tcx, hir_arg_ty);
-                        linter.collect_implied_lifetimes_bounds(arg_ty);
+                        linter.collect_implied_lifetime_bounds(arg_ty);
                     }
                 }
             }
         }
         // issue 10051 for clause: impl ... for for_clause_ty
         let for_clause_ty = hir_ty_to_ty(cx.tcx, impl_item.self_ty);
-        linter.collect_implied_lifetimes_bounds(for_clause_ty);
+        linter.collect_implied_lifetime_bounds(for_clause_ty);
         linter.report_lints(cx);
     }
 }
@@ -361,7 +368,46 @@ impl ImpliedBoundsLinter {
         self.declared_lifetime_sym(bound_region.get_name())
     }
 
-    fn collect_implied_lifetimes_bounds(&mut self, ty: Ty<'_>) {
+    fn collect_implied_lifetime_bounds_ast(&mut self, ty: &rustc_ast::ast::Ty) {
+        self.collect_nested_ref_bounds_ast(ty, None);
+    }
+
+    fn collect_nested_ref_bounds_ast(&mut self, ty: &rustc_ast::ast::Ty, outlived_lft_sym_opt: Option<Symbol>) {
+        use rustc_ast::ast::TyKind::*;
+        match &ty.kind {
+            Ref(lifetime_opt, mut_ty) => {
+                if let Some(lifetime) = lifetime_opt {
+
+                }
+                dbg!(&ty);
+            },
+            Slice(element_ty) => {
+                self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
+            },
+            Array(element_ty, _anon_const) => {
+                self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
+            },
+            Tup(tuple_tys) => {
+                dbg!(&ty);
+            },
+            AnonStruct(_node_id, field_defs) | AnonUnion(_node_id, field_defs) => {
+                dbg!(&ty);
+            },
+            Path(squalified_self_opt, path) => {
+                dbg!(&ty);
+            },
+            TraitObject(generic_bounds, trait_object_syntax) => {
+                dbg!(&ty);
+            },
+            ImplTrait(node_id, generic_bounds) => {
+                dbg!(&ty);
+            },
+            Ptr(..) | BareFn(..) | Never | Typeof(..) | Infer | ImplicitSelf | MacCall(..) | CVarArgs | Dummy
+            | Err(..) | Paren(..) => {},
+        }
+    }
+
+    fn collect_implied_lifetime_bounds(&mut self, ty: Ty<'_>) {
         self.collect_nested_ref_bounds(ty, None);
     }
 
