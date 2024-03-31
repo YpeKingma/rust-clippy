@@ -154,6 +154,13 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         }
         dbg!(linter);
     }
+
+    fn check_item_post(&mut self, _early_context: &rustc_lint::EarlyContext<'_>, item: &rustc_ast::Item) {
+        let rustc_ast::ItemKind::Impl(box_impl) = &item.kind else {
+            return;
+        };
+        dbg!(box_impl);
+    }
 }
 
 impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
@@ -392,8 +399,8 @@ impl ImpliedBoundsLinter {
                     if let Some(lifetime) = lifetime_opt
                         && let Some(declared_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
                     {
-                        dbg!(declared_lifetime_sym);
-                        dbg!(lifetime.ident.span);
+                        // dbg!(declared_lifetime_sym);
+                        // dbg!(lifetime.ident.span);
                         if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
                             self.add_implied_bound(lifetime.ident.name, outlived_lft_sym_span.0);
                             self.add_implied_bound_spans(
@@ -429,11 +436,11 @@ impl ImpliedBoundsLinter {
                             // dbg!(&path_segment);
                             if let Some(generic_args) = &path_segment.args {
                                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
-                                    dbg!(ab_args.span);
+                                    // dbg!(ab_args.span);
                                     for ab_arg in &ab_args.args {
                                         if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
                                             if let rustc_ast::ast::GenericArg::Lifetime(long_lft) = generic_arg {
-                                                dbg!(long_lft);
+                                                // dbg!(long_lft);
                                                 self.add_implied_bound(long_lft.ident.name, outlived_lft_sym_span.0);
                                                 self.add_implied_bound_spans(
                                                     long_lft.ident.name,
