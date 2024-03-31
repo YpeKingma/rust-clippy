@@ -23,9 +23,10 @@
 /// The lints here are in the nursery category.
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Deref;
 
 use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_sugg};
-use rustc_ast::GenericParamKind;
+use rustc_ast::{AngleBracketedArg, GenericArgs, GenericParamKind};
 use rustc_errors::Applicability;
 use rustc_hir::def_id::LocalDefId;
 use rustc_hir::intravisit::FnKind;
@@ -43,7 +44,7 @@ extern crate rustc_type_ir;
 use rustc_type_ir::AliasKind;
 
 extern crate rustc_hash;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -133,22 +134,22 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         _fn_span: Span,
         node_id: rustc_ast::NodeId,
     ) {
-        dbg!(node_id);
         let rustc_ast::visit::FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
             return;
         };
+        dbg!(node_id);
         let declared_lifetimes_ast = get_declared_lifetimes_spans_ast(generics);
-        dbg!(&declared_lifetimes_ast);
         if declared_lifetimes_ast.len() <= 1 {
             return;
         }
+        dbg!(&declared_lifetimes_ast);
         let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
         for param in &fn_sig.decl.inputs {
-            dbg!(&param.ty);
+            dbg!("param.ty");
             linter.collect_implied_lifetime_bounds_ast(&param.ty);
         }
         if let rustc_ast::ast::FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
-            dbg!(ret_ty);
+            dbg!("ret_ty");
             linter.collect_implied_lifetime_bounds_ast(ret_ty);
         }
         dbg!(linter);
@@ -256,13 +257,13 @@ impl Ord for BoundLftPair {
     }
 }
 
-fn get_declared_lifetimes_spans_ast(generics: &rustc_ast::Generics) -> FxHashSet<Symbol> {
+fn get_declared_lifetimes_spans_ast(generics: &rustc_ast::Generics) -> FxHashMap<Symbol, Span> {
     generics
         .params
         .iter()
         .filter_map(|gp| {
             if let GenericParamKind::Lifetime = gp.kind {
-                Some(gp.ident.name)
+                Some((gp.ident.name, gp.ident.span))
             } else {
                 None
             }
@@ -286,14 +287,24 @@ fn get_declared_lifetimes_spans_hir(generics: &Generics<'_>) -> FxHashMap<Symbol
 
 fn get_declared_bounds_spans_ast(generics: &rustc_ast::Generics) -> BTreeMap<BoundLftPair, Span> {
     let mut declared_bounds = BTreeMap::new();
-    generics.where_clause.predicates.iter().for_each(|p| {
-        if let rustc_ast::WherePredicate::RegionPredicate(wrp) = p {
+    generics.params.iter().for_each(|gp| {
+        if !gp.bounds.is_empty() {
+            let long_lft_sym = gp.ident.name;
+            gp.bounds.iter().for_each(|bound| {
+                if let rustc_ast::GenericBound::Outlives(outlived_lft) = bound {
+                    declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), gp.span());
+                }
+            });
+        }
+    });
+    generics.where_clause.predicates.iter().for_each(|wp| {
+        if let rustc_ast::WherePredicate::RegionPredicate(wrp) = wp {
             let long_lft_sym = wrp.lifetime.ident.name;
-            for bound in &wrp.bounds {
+            wrp.bounds.iter().for_each(|bound| {
                 if let rustc_ast::GenericBound::Outlives(outlived_lft) = bound {
                     declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), wrp.span);
                 }
-            }
+            })
         }
     });
     declared_bounds
@@ -322,18 +333,18 @@ fn get_declared_bounds_spans_hir(generics: &Generics<'_>) -> BTreeMap<BoundLftPa
 
 #[derive(Debug)]
 struct ImpliedBoundsLinter {
-    declared_lifetimes_spans: Option<FxHashMap<Symbol, Span>>,
-    declared_lifetimes_spans_ast: Option<FxHashSet<Symbol>>,
+    declared_lifetimes_spans: FxHashMap<Symbol, Span>,
+    // declared_lifetimes_spans_ast: Option<FxHashSet<Symbol>>,
     generics_span: Span,
     declared_bounds_spans: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
     implied_bounds: BTreeSet<BoundLftPair>,              // BTree for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
-    fn new_ast(declared_lifetimes_spans_ast: FxHashSet<Symbol>, generics: &rustc_ast::Generics) -> Self {
+    fn new_ast(declared_lifetimes_spans_ast: FxHashMap<Symbol, Span>, generics: &rustc_ast::Generics) -> Self {
         ImpliedBoundsLinter {
-            declared_lifetimes_spans: None,
-            declared_lifetimes_spans_ast: Some(declared_lifetimes_spans_ast),
+            declared_lifetimes_spans: declared_lifetimes_spans_ast,
+            // declared_lifetimes_spans_ast: Some(declared_lifetimes_spans_ast),
             declared_bounds_spans: get_declared_bounds_spans_ast(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
@@ -342,8 +353,8 @@ impl ImpliedBoundsLinter {
 
     fn new_hir(declared_lifetimes_spans: FxHashMap<Symbol, Span>, generics: &Generics<'_>) -> Self {
         ImpliedBoundsLinter {
-            declared_lifetimes_spans_ast: None,
-            declared_lifetimes_spans: Some(declared_lifetimes_spans),
+            // declared_lifetimes_spans_ast: None,
+            declared_lifetimes_spans: declared_lifetimes_spans,
             declared_bounds_spans: get_declared_bounds_spans_hir(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
@@ -351,13 +362,7 @@ impl ImpliedBoundsLinter {
     }
 
     fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        if let Some(declared_lifetimes_spans) = &self.declared_lifetimes_spans {
-            lft_sym_opt.filter(|lft_sym| declared_lifetimes_spans.contains_key(lft_sym))
-        } else if let Some(declared_lifetimes_spans_ast) = &self.declared_lifetimes_spans_ast {
-            lft_sym_opt.filter(|lft_sym| declared_lifetimes_spans_ast.contains(lft_sym))
-        } else {
-            None
-        }
+        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes_spans.contains_key(lft_sym))
     }
 
     fn declared_lifetime_sym_region(&self, region: Region<'_>) -> Option<Symbol> {
@@ -372,54 +377,83 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds_ast(ty, None);
     }
 
-    fn collect_nested_ref_bounds_ast(&mut self, ty: &rustc_ast::ast::Ty, outlived_lft_sym_opt: Option<Symbol>) {
+    fn collect_nested_ref_bounds_ast(
+        &mut self,
+        outliving_ty: &rustc_ast::ast::Ty,
+        outlived_lft_sym_opt: Option<Symbol>,
+    ) {
         use rustc_ast::ast::TyKind::*;
-        match &ty.kind {
-            Ref(lifetime_opt, referred_to_mut_ty) => {
-                let referred_to_ty = &referred_to_mut_ty.ty;
-                if let Some(lifetime) = lifetime_opt {
-                    dbg!(lifetime.ident.span);
-                    let lifetime_sym = lifetime.ident.name;
+        let mut outliving_tys = vec![outliving_ty];
+        while let Some(ty) = outliving_tys.pop() {
+            match &ty.kind {
+                Ref(lifetime_opt, referred_to_mut_ty) => {
+                    let referred_to_ty = &referred_to_mut_ty.ty;
+                    if let Some(lifetime) = lifetime_opt
+                        && let Some(declared_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
+                    {
+                        dbg!(declared_lifetime_sym);
+                        dbg!(lifetime.ident.span);
+                        if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
+                            self.add_implied_bound(lifetime.ident.name, outlived_lft_sym);
+                        }
+                        self.collect_nested_ref_bounds_ast(referred_to_ty, Some(declared_lifetime_sym));
+                    } else {
+                        outliving_tys.push(referred_to_ty);
+                    }
+                },
+                Slice(element_ty) => {
+                    outliving_tys.push(element_ty);
+                },
+                Array(element_ty, _anon_const) => {
+                    outliving_tys.push(element_ty);
+                },
+                Tup(tuple_tys) => {
+                    for tuple_ty in tuple_tys {
+                        outliving_tys.push(tuple_ty);
+                    }
+                },
+                Path(_qual_self_opt, path) => {
+                    // ignore _qual_self_opt, i.e. "as", only check the path.
                     if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                        self.add_implied_bound(lifetime.ident.name, outlived_lft_sym);
+                        for path_segment in &path.segments {
+                            // dbg!(&path_segment);
+                            if let Some(generic_args) = &path_segment.args {
+                                if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
+                                    dbg!(ab_args.span);
+                                    for ab_arg in &ab_args.args {
+                                        if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
+                                            if let rustc_ast::ast::GenericArg::Lifetime(long_lft) = generic_arg {
+                                                dbg!(long_lft);
+                                                self.add_implied_bound(long_lft.ident.name, outlived_lft_sym);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    self.collect_nested_ref_bounds_ast(referred_to_ty, Some(lifetime_sym));
-                } else {
-                    self.collect_nested_ref_bounds_ast(referred_to_ty, outlived_lft_sym_opt);
-                }
-            },
-            Slice(element_ty) => {
-                self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
-            },
-            Array(element_ty, _anon_const) => {
-                self.collect_nested_ref_bounds_ast(element_ty, outlived_lft_sym_opt);
-            },
-            Tup(tuple_tys) => {
-                for tuple_ty in tuple_tys {
-                    self.collect_nested_ref_bounds_ast(tuple_ty, outlived_lft_sym_opt);
-                }
-            },
-            TraitObject(generic_bounds, _trait_object_syntax) => {
-                // FIXME: add self.collect_nested_ref_generic_bounds_ast(generic_bounds, outlived_lft_opt)
-                for generic_bound in generic_bounds {
-                    use rustc_ast::ast::GenericBound::*;
-                    match generic_bound {
-                        Trait(_poly_trait_ref, _trait_bound_modifier) => {
-                            dbg!(generic_bound);
-                        },
-                        Outlives(_lifetime) => {
-                            dbg!(generic_bound);
-                        },
+                },
+                TraitObject(generic_bounds, _trait_object_syntax) => {
+                    // FIXME: add self.collect_nested_ref_generic_bounds_ast(generic_bounds, outlived_lft_opt)
+                    for generic_bound in generic_bounds {
+                        use rustc_ast::ast::GenericBound::*;
+                        match generic_bound {
+                            Trait(_poly_trait_ref, _trait_bound_modifier) => {
+                                dbg!(generic_bound);
+                            },
+                            Outlives(_lifetime) => {
+                                dbg!(generic_bound);
+                            },
+                        }
                     }
-                }
-                dbg!(&ty);
-            },
-            ImplTrait(_node_id, _generic_bounds) => {
-                // FIXME: use collect_nested_ref_generic_bounds_ast
-                dbg!(&ty);
-            },
-            AnonStruct(..) | AnonUnion(..) | BareFn(..) | CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer
-            | MacCall(..) | Never | Paren(..) | Path(..) | Ptr(..) | Typeof(..) => {},
+                },
+                ImplTrait(_node_id, _generic_bounds) => {
+                    // FIXME: use collect_nested_ref_generic_bounds_ast
+                    dbg!(&ty);
+                },
+                AnonStruct(..) | AnonUnion(..) | BareFn(..) | CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer
+                | MacCall(..) | Never | Paren(..) | Ptr(..) | Typeof(..) => {},
+            }
         }
     }
 
@@ -522,11 +556,7 @@ impl ImpliedBoundsLinter {
     }
 
     fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
-        if let Some(declared_lifetimes_spans) = &self.declared_lifetimes_spans {
-            declared_lifetimes_spans.get(&lft_sym).copied()
-        } else {
-            None
-        }
+        self.declared_lifetimes_spans.get(&lft_sym).copied()
     }
 
     fn report_lints(self, cx: &LateContext<'_>) {
