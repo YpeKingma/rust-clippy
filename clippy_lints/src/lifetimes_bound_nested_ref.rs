@@ -334,20 +334,20 @@ fn get_declared_bounds_spans_hir(generics: &Generics<'_>) -> BTreeMap<BoundLftPa
 #[derive(Debug)]
 struct ImpliedBoundsLinter {
     declared_lifetimes_spans: FxHashMap<Symbol, Span>,
-    // declared_lifetimes_spans_ast: Option<FxHashSet<Symbol>>,
     generics_span: Span,
     declared_bounds_spans: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
     implied_bounds: BTreeSet<BoundLftPair>,              // BTree for consistent reporting order
+    implied_bounds_spans: BTreeMap<BoundLftPair, (Span, Span)>, // BTree for consistent reporting order
 }
 
 impl ImpliedBoundsLinter {
     fn new_ast(declared_lifetimes_spans_ast: FxHashMap<Symbol, Span>, generics: &rustc_ast::Generics) -> Self {
         ImpliedBoundsLinter {
             declared_lifetimes_spans: declared_lifetimes_spans_ast,
-            // declared_lifetimes_spans_ast: Some(declared_lifetimes_spans_ast),
             declared_bounds_spans: get_declared_bounds_spans_ast(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
+            implied_bounds_spans: BTreeMap::new(),
         }
     }
 
@@ -358,6 +358,7 @@ impl ImpliedBoundsLinter {
             declared_bounds_spans: get_declared_bounds_spans_hir(generics),
             generics_span: generics.span,
             implied_bounds: BTreeSet::new(),
+            implied_bounds_spans: BTreeMap::new(),
         }
     }
 
@@ -380,7 +381,7 @@ impl ImpliedBoundsLinter {
     fn collect_nested_ref_bounds_ast(
         &mut self,
         outliving_ty: &rustc_ast::ast::Ty,
-        outlived_lft_sym_opt: Option<Symbol>,
+        outlived_lft_sym_span_opt: Option<(Symbol, Span)>,
     ) {
         use rustc_ast::ast::TyKind::*;
         let mut outliving_tys = vec![outliving_ty];
@@ -393,10 +394,19 @@ impl ImpliedBoundsLinter {
                     {
                         dbg!(declared_lifetime_sym);
                         dbg!(lifetime.ident.span);
-                        if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
-                            self.add_implied_bound(lifetime.ident.name, outlived_lft_sym);
+                        if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
+                            self.add_implied_bound(lifetime.ident.name, outlived_lft_sym_span.0);
+                            self.add_implied_bound_spans(
+                                lifetime.ident.name,
+                                outlived_lft_sym_span.0,
+                                lifetime.ident.span,
+                                outlived_lft_sym_span.1,
+                            );
                         }
-                        self.collect_nested_ref_bounds_ast(referred_to_ty, Some(declared_lifetime_sym));
+                        self.collect_nested_ref_bounds_ast(
+                            referred_to_ty,
+                            Some((declared_lifetime_sym, lifetime.ident.span)),
+                        );
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
@@ -414,7 +424,7 @@ impl ImpliedBoundsLinter {
                 },
                 Path(_qual_self_opt, path) => {
                     // ignore _qual_self_opt, i.e. "as", only check the path.
-                    if let Some(outlived_lft_sym) = outlived_lft_sym_opt {
+                    if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
                         for path_segment in &path.segments {
                             // dbg!(&path_segment);
                             if let Some(generic_args) = &path_segment.args {
@@ -424,7 +434,13 @@ impl ImpliedBoundsLinter {
                                         if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
                                             if let rustc_ast::ast::GenericArg::Lifetime(long_lft) = generic_arg {
                                                 dbg!(long_lft);
-                                                self.add_implied_bound(long_lft.ident.name, outlived_lft_sym);
+                                                self.add_implied_bound(long_lft.ident.name, outlived_lft_sym_span.0);
+                                                self.add_implied_bound_spans(
+                                                    long_lft.ident.name,
+                                                    outlived_lft_sym_span.0,
+                                                    long_lft.ident.span,
+                                                    outlived_lft_sym_span.1,
+                                                );
                                             }
                                         }
                                     }
@@ -544,6 +560,22 @@ impl ImpliedBoundsLinter {
             {
                 self.add_implied_bound(declared_lft_sym, outlived_lft_sym);
             }
+        }
+    }
+
+    fn add_implied_bound_spans(
+        &mut self,
+        long_lft_sym: Symbol,
+        outlived_lft_sym: Symbol,
+        long_lft_span: Span,
+        outlived_lft_span: Span,
+    ) {
+        if long_lft_sym != outlived_lft_sym {
+            // only unequal symbols form a lifetime bound
+            self.implied_bounds_spans.insert(
+                BoundLftPair::new(long_lft_sym, outlived_lft_sym),
+                (long_lft_span, outlived_lft_span),
+            );
         }
     }
 
