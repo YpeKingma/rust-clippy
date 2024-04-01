@@ -341,24 +341,31 @@ impl ImpliedBoundsLinter {
                     }
                     self.collect_nested_ref_bounds_path(path, outlived_lft_sym_span_opt);
                 },
-                TraitObject(generic_bounds, _trait_object_syntax) => {
-                    for generic_bound in generic_bounds {
-                        use GenericBound::*;
-                        match generic_bound {
-                            Trait(_poly_trait_ref, _trait_bound_modifier) => {
-                                dbg!(generic_bound);
-                            },
-                            Outlives(_lifetime) => {
-                                dbg!(generic_bound);
-                            },
-                        }
-                    }
+                TraitObject(_generic_bounds, _trait_object_syntax) => {
+                    // CHECKME: use the outlived lifetimes in generic bounds?
+                    // for generic_bound in generic_bounds {
+                    //     use GenericBound::*;
+                    //     match generic_bound {
+                    //         Trait(_poly_trait_ref, _trait_bound_modifier) => {
+                    //             dbg!(generic_bound);
+                    //         },
+                    //         Outlives(_lifetime) => {
+                    //             dbg!(generic_bound);
+                    //         },
+                    //     }
+                    // }
                 },
                 ImplTrait(_node_id, _generic_bounds) => {
-                    dbg!(&ty);
+                    // CHECKME: use the generic bounds as for TraitObject?
                 },
-                AnonStruct(..) | AnonUnion(..) | BareFn(..) | CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer
-                | MacCall(..) | Never | Paren(..) | Ptr(..) | Typeof(..) => {},
+                AnonStruct(_node_id, _field_defs) | AnonUnion(_node_id, _field_defs) => {
+                    // CHECKME: use the type in the field defs?
+                },
+                BareFn(_bare_fn_ty) => {
+                    // CHECKME: use generic params and function definition?
+                },
+                CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer | MacCall(..) | Never | Paren(..) | Ptr(..)
+                | Typeof(..) => {},
             }
         }
     }
