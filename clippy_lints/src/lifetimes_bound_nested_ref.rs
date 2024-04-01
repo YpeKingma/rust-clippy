@@ -35,6 +35,7 @@ use rustc_ast::{
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass, Lint, LintContext};
 use rustc_session::impl_lint_pass;
+use rustc_span::symbol::Ident;
 use rustc_span::{Span, Symbol};
 
 extern crate rustc_hash;
@@ -266,15 +267,15 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn declared_lifetime_sym(&self, lft_sym_opt: Option<Symbol>) -> Option<Symbol> {
-        lft_sym_opt.filter(|lft_sym| self.declared_lifetimes_spans.contains_key(lft_sym))
+    fn is_declared_lifetime_sym(&self, lft_sym: Symbol) -> bool {
+        self.declared_lifetimes_spans.contains_key(&lft_sym)
     }
 
     fn collect_implied_lifetime_bounds_path(&mut self, path: &Path) {
         self.collect_nested_ref_bounds_path(path, None);
     }
 
-    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
+    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_ident_opt: Option<Ident>) {
         for path_segment in &path.segments {
             if let Some(generic_args) = &path_segment.args {
                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
@@ -283,17 +284,12 @@ impl ImpliedBoundsLinter {
                             use GenericArg::*;
                             match generic_arg {
                                 Lifetime(long_lft) => {
-                                    if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
-                                        self.add_implied_bound_spans(
-                                            long_lft.ident.name,
-                                            outlived_lft_sym_span.0,
-                                            long_lft.ident.span,
-                                            outlived_lft_sym_span.1,
-                                        );
+                                    if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
+                                        self.add_implied_bound_spans(long_lft.ident, outlived_lft_ident);
                                     }
                                 },
                                 Type(p_ty) => {
-                                    self.collect_nested_ref_bounds(&p_ty, outlived_lft_sym_span_opt);
+                                    self.collect_nested_ref_bounds(&p_ty, outlived_lft_ident_opt);
                                 },
                                 Const(_anon_const) => {},
                             }
@@ -308,7 +304,7 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds(ty, None);
     }
 
-    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
+    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_ident_opt: Option<Ident>) {
         use TyKind::*;
         let mut outliving_tys = vec![outliving_ty];
         while let Some(ty) = outliving_tys.pop() {
@@ -316,17 +312,12 @@ impl ImpliedBoundsLinter {
                 Ref(lifetime_opt, referred_to_mut_ty) => {
                     let referred_to_ty = &referred_to_mut_ty.ty;
                     if let Some(lifetime) = lifetime_opt
-                        && let Some(ref_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
+                        && self.is_declared_lifetime_sym(lifetime.ident.name)
                     {
-                        if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
-                            self.add_implied_bound_spans(
-                                lifetime.ident.name,
-                                outlived_lft_sym_span.0,
-                                lifetime.ident.span,
-                                outlived_lft_sym_span.1,
-                            );
+                        if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
+                            self.add_implied_bound_spans(lifetime.ident, outlived_lft_ident);
                         }
-                        self.collect_nested_ref_bounds(referred_to_ty, Some((ref_lifetime_sym, lifetime.ident.span)));
+                        self.collect_nested_ref_bounds(referred_to_ty, Some(lifetime.ident));
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
@@ -346,7 +337,7 @@ impl ImpliedBoundsLinter {
                     if let Some(q_self) = q_self_opt {
                         outliving_tys.push(&q_self.ty);
                     }
-                    self.collect_nested_ref_bounds_path(path, outlived_lft_sym_span_opt);
+                    self.collect_nested_ref_bounds_path(path, outlived_lft_ident_opt);
                 },
                 TraitObject(_generic_bounds, _trait_object_syntax) => {
                     // CHECKME: use the outlived lifetimes in the generic bounds?
@@ -366,30 +357,25 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn add_implied_bound_spans(
-        &mut self,
-        long_lft_sym: Symbol,
-        outlived_lft_sym: Symbol,
-        long_lft_span: Span,
-        outlived_lft_span: Span,
-    ) {
-        if long_lft_sym != outlived_lft_sym {
+    fn add_implied_bound_spans(&mut self, long_lft_ident: Ident, outlived_lft_ident: Ident) {
+        if long_lft_ident.name != outlived_lft_ident.name {
             // only unequal symbols form a lifetime bound
             match self
                 .implied_bounds_spans
-                .entry(BoundLftPair::new(long_lft_sym, outlived_lft_sym))
+                .entry(BoundLftPair::new(long_lft_ident.name, outlived_lft_ident.name))
             {
                 Entry::Vacant(ve) => {
                     // in nested references the outlived lifetime occurs first
-                    ve.insert((outlived_lft_span, long_lft_span));
+                    ve.insert((outlived_lft_ident.span, long_lft_ident.span));
                 },
                 Entry::Occupied(mut oe) => {
                     // keep the first occurrence of the nested reference
                     let prev_spans = oe.get_mut();
-                    if span_is_before(outlived_lft_span, prev_spans.0)
-                        || (outlived_lft_span == prev_spans.0 && span_is_before(long_lft_span, prev_spans.1))
+                    if span_is_before(outlived_lft_ident.span, prev_spans.0)
+                        || (outlived_lft_ident.span == prev_spans.0
+                            && span_is_before(long_lft_ident.span, prev_spans.1))
                     {
-                        *prev_spans = (outlived_lft_span, long_lft_span);
+                        *prev_spans = (outlived_lft_ident.span, long_lft_ident.span);
                     }
                 },
             }
