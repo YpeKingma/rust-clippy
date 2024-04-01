@@ -132,34 +132,47 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         _early_context: &rustc_lint::EarlyContext<'_>,
         fn_kind: rustc_ast::visit::FnKind<'_>,
         _fn_span: Span,
-        node_id: rustc_ast::NodeId,
+        _node_id: rustc_ast::NodeId,
     ) {
         let rustc_ast::visit::FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
             return;
         };
-        dbg!(node_id);
+        // dbg!(node_id);
         let declared_lifetimes_ast = get_declared_lifetimes_spans_ast(generics);
         if declared_lifetimes_ast.len() <= 1 {
             return;
         }
-        dbg!(&declared_lifetimes_ast);
+        // dbg!(&declared_lifetimes_ast);
         let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
         for param in &fn_sig.decl.inputs {
-            dbg!("param.ty");
+            // dbg!("param.ty");
             linter.collect_implied_lifetime_bounds_ast(&param.ty);
         }
         if let rustc_ast::ast::FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
-            dbg!("ret_ty");
+            // dbg!("ret_ty");
             linter.collect_implied_lifetime_bounds_ast(ret_ty);
         }
         dbg!(linter);
     }
 
+    /// For issues 84591 and 100051
     fn check_item_post(&mut self, _early_context: &rustc_lint::EarlyContext<'_>, item: &rustc_ast::Item) {
         let rustc_ast::ItemKind::Impl(box_impl) = &item.kind else {
             return;
         };
-        dbg!(box_impl);
+        let Some(of_trait_ref) = &box_impl.of_trait else {
+            return;
+        };
+        let declared_lifetimes = get_declared_lifetimes_spans_ast(&box_impl.generics);
+        if declared_lifetimes.len() <= 1 {
+            return;
+        }
+        let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes, &box_impl.generics);
+        linter.collect_nested_ref_bounds_ast_path(&of_trait_ref.path, None);
+        // issue 10051 for clause: impl ... for for_clause_ty
+        let for_clause_ty = &box_impl.self_ty;
+        linter.collect_implied_lifetime_bounds_ast(for_clause_ty);
+        dbg!(linter);
     }
 }
 
@@ -381,6 +394,42 @@ impl ImpliedBoundsLinter {
         self.declared_lifetime_sym(bound_region.get_name())
     }
 
+    fn collect_nested_ref_bounds_ast_path(
+        &mut self,
+        path: &rustc_ast::ast::Path,
+        outlived_lft_sym_span_opt: Option<(Symbol, Span)>,
+    ) {
+        for path_segment in &path.segments {
+            // dbg!(&path_segment);
+            if let Some(generic_args) = &path_segment.args {
+                if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
+                    for ab_arg in &ab_args.args {
+                        if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
+                            use rustc_ast::ast::GenericArg::*;
+                            match generic_arg {
+                                Lifetime(long_lft) => {
+                                    if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
+                                        self.add_implied_bound(long_lft.ident.name, outlived_lft_sym_span.0);
+                                        self.add_implied_bound_spans(
+                                            long_lft.ident.name,
+                                            outlived_lft_sym_span.0,
+                                            long_lft.ident.span,
+                                            outlived_lft_sym_span.1,
+                                        );
+                                    }
+                                },
+                                Type(p_ty) => {
+                                    self.collect_nested_ref_bounds_ast(&p_ty, outlived_lft_sym_span_opt);
+                                },
+                                Const(_anon_const) => {},
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn collect_implied_lifetime_bounds_ast(&mut self, ty: &rustc_ast::ast::Ty) {
         self.collect_nested_ref_bounds_ast(ty, None);
     }
@@ -430,31 +479,8 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 Path(_qual_self_opt, path) => {
-                    // ignore _qual_self_opt, i.e. "as", only check the path.
-                    if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
-                        for path_segment in &path.segments {
-                            // dbg!(&path_segment);
-                            if let Some(generic_args) = &path_segment.args {
-                                if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
-                                    // dbg!(ab_args.span);
-                                    for ab_arg in &ab_args.args {
-                                        if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
-                                            if let rustc_ast::ast::GenericArg::Lifetime(long_lft) = generic_arg {
-                                                // dbg!(long_lft);
-                                                self.add_implied_bound(long_lft.ident.name, outlived_lft_sym_span.0);
-                                                self.add_implied_bound_spans(
-                                                    long_lft.ident.name,
-                                                    outlived_lft_sym_span.0,
-                                                    long_lft.ident.span,
-                                                    outlived_lft_sym_span.1,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Ignore _qual_self_opt, i.e. "as". Only check path:
+                    self.collect_nested_ref_bounds_ast_path(path, outlived_lft_sym_span_opt);
                 },
                 TraitObject(generic_bounds, _trait_object_syntax) => {
                     // FIXME: add self.collect_nested_ref_generic_bounds_ast(generic_bounds, outlived_lft_opt)
