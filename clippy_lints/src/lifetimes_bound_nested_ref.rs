@@ -267,15 +267,11 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn is_declared_lifetime_sym(&self, lft_sym: Symbol) -> bool {
-        self.declared_lifetimes_spans.contains_key(&lft_sym)
-    }
-
     fn collect_implied_lifetime_bounds_path(&mut self, path: &Path) {
         self.collect_nested_ref_bounds_path(path, None);
     }
 
-    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_ident_opt: Option<Ident>) {
+    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_ident_opt: Option<&Ident>) {
         for path_segment in &path.segments {
             if let Some(generic_args) = &path_segment.args {
                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
@@ -285,7 +281,7 @@ impl ImpliedBoundsLinter {
                             match generic_arg {
                                 Lifetime(long_lft) => {
                                     if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
-                                        self.add_implied_bound_spans(long_lft.ident, outlived_lft_ident);
+                                        self.add_implied_bound_spans(&long_lft.ident, outlived_lft_ident);
                                     }
                                 },
                                 Type(p_ty) => {
@@ -304,7 +300,7 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds(ty, None);
     }
 
-    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_ident_opt: Option<Ident>) {
+    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_ident_opt: Option<&Ident>) {
         use TyKind::*;
         let mut outliving_tys = vec![outliving_ty];
         while let Some(ty) = outliving_tys.pop() {
@@ -312,12 +308,12 @@ impl ImpliedBoundsLinter {
                 Ref(lifetime_opt, referred_to_mut_ty) => {
                     let referred_to_ty = &referred_to_mut_ty.ty;
                     if let Some(lifetime) = lifetime_opt
-                        && self.is_declared_lifetime_sym(lifetime.ident.name)
+                        && self.declared_lifetimes_spans.contains_key(&lifetime.ident.name)
                     {
                         if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
-                            self.add_implied_bound_spans(lifetime.ident, outlived_lft_ident);
+                            self.add_implied_bound_spans(&lifetime.ident, outlived_lft_ident);
                         }
-                        self.collect_nested_ref_bounds(referred_to_ty, Some(lifetime.ident));
+                        self.collect_nested_ref_bounds(referred_to_ty, Some(&lifetime.ident));
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
@@ -357,7 +353,7 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn add_implied_bound_spans(&mut self, long_lft_ident: Ident, outlived_lft_ident: Ident) {
+    fn add_implied_bound_spans(&mut self, long_lft_ident: &Ident, outlived_lft_ident: &Ident) {
         if long_lft_ident.name != outlived_lft_ident.name {
             // only unequal symbols form a lifetime bound
             match self
@@ -382,31 +378,27 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn get_declared_lifetime_span(&self, lft_sym: Symbol) -> Option<Span> {
-        self.declared_lifetimes_spans.get(&lft_sym).copied()
-    }
-
     fn report_lints(self, cx: &EarlyContext<'_>) {
         let bound_implied_here_note = "this lifetimes bound is implied here:";
-        for implied_bound_spans in &self.implied_bounds_spans {
-            let (outlived_lft_span, long_lft_span) = implied_bound_spans.1;
-            let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
-            if !self.declared_bounds_spans.contains_key(implied_bound_spans.0) {
-                let declaration = implied_bound_spans.0.as_bound_declaration();
-                let msg = &format!("missing lifetimes bound declaration: {declaration}");
-                if let Some(long_lft_decl_span) = self.get_declared_lifetime_span(implied_bound_spans.0.long_lft_sym) {
-                    span_lint_and_fix_sugg_and_note(
+
+        for (implied_bound, (outlived_lft_span, long_lft_span)) in &self.implied_bounds_spans {
+            if !self.declared_bounds_spans.contains_key(implied_bound) {
+                let declaration = implied_bound.as_bound_declaration();
+                let msg_missing = &format!("missing lifetimes bound declaration: {declaration}");
+                if let Some(long_lft_decl_span) = self.declared_lifetimes_spans.get(&implied_bound.long_lft_sym) {
+                    let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
+                    span_lint_and_fix_sugg_and_note_cause(
                         cx,
                         EXPLICIT_LIFETIMES_BOUND,
-                        long_lft_decl_span,
-                        msg,
+                        *long_lft_decl_span,
+                        msg_missing,
                         "try",
                         declaration,
                         nested_ref_span,
                         bound_implied_here_note,
                     );
                 } else {
-                    span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg);
+                    span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg_missing);
                 }
             }
         }
@@ -452,7 +444,7 @@ fn spans_merge(span1: Span, span2: Span) -> Span {
 
 /// Combine span_lint_and_sugg and span_lint_and_help:
 /// give a lint error, a suggestion to fix, and a note on the cause of the lint in the code.
-fn span_lint_and_fix_sugg_and_note<T: LintContext>(
+fn span_lint_and_fix_sugg_and_note_cause<T: LintContext>(
     cx: &T,
     lint: &'static Lint,
     sp: Span,
@@ -464,6 +456,6 @@ fn span_lint_and_fix_sugg_and_note<T: LintContext>(
 ) {
     span_lint_and_then(cx, lint, sp, msg, |diag| {
         diag.span_suggestion(sp, fix_help.to_string(), sugg, Applicability::MachineApplicable);
-        diag.span_help(cause_span, cause_note);
+        diag.span_note(cause_span, cause_note);
     });
 }
