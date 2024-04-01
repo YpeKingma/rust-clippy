@@ -32,7 +32,7 @@ use rustc_ast::{
     NodeId, Path, Ty, TyKind, WherePredicate,
 };
 use rustc_errors::Applicability;
-use rustc_lint::{EarlyLintPass, LintContext};
+use rustc_lint::{EarlyContext, EarlyLintPass};
 use rustc_session::impl_lint_pass;
 use rustc_span::{Span, Symbol};
 
@@ -120,13 +120,7 @@ impl_lint_pass!(LifetimesBoundNestedRef => [
 
 impl EarlyLintPass for LifetimesBoundNestedRef {
     /// For issue 25860
-    fn check_fn(
-        &mut self,
-        early_context: &rustc_lint::EarlyContext<'_>,
-        fn_kind: FnKind<'_>,
-        _fn_span: Span,
-        _node_id: NodeId,
-    ) {
+    fn check_fn(&mut self, early_context: &EarlyContext<'_>, fn_kind: FnKind<'_>, _fn_span: Span, _node_id: NodeId) {
         let FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
             return;
         };
@@ -145,7 +139,7 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
     }
 
     /// For issues 84591 and 100051
-    fn check_item_post(&mut self, early_context: &rustc_lint::EarlyContext<'_>, item: &Item) {
+    fn check_item_post(&mut self, early_context: &EarlyContext<'_>, item: &Item) {
         let ItemKind::Impl(box_impl) = &item.kind else {
             return;
         };
@@ -392,7 +386,7 @@ impl ImpliedBoundsLinter {
         self.declared_lifetimes_spans.get(&lft_sym).copied()
     }
 
-    fn report_lints<T: LintContext>(self, cx: &T) {
+    fn report_lints(self, cx: &EarlyContext<'_>) {
         for implied_bound_spans in &self.implied_bounds_spans {
             if !self.declared_bounds_spans.contains_key(implied_bound_spans.0) {
                 let declaration = implied_bound_spans.0.as_bound_declaration();
