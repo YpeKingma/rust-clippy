@@ -34,7 +34,7 @@ use rustc_hir::{
     Body, FnDecl, GenericArg as HirGenericArg, GenericBound, Generics, Item, ItemKind, ParamName, WherePredicate,
 };
 use rustc_hir_analysis::hir_ty_to_ty;
-use rustc_lint::{EarlyLintPass, LateContext, LateLintPass};
+use rustc_lint::{EarlyLintPass, LateContext, LateLintPass, LintContext};
 use rustc_middle::ty::ty_kind::TyKind;
 use rustc_middle::ty::{BoundRegionKind, BoundVariableKind, ExistentialPredicate, GenericArg, List, Region, Ty};
 use rustc_session::impl_lint_pass;
@@ -129,7 +129,7 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
     /// For issue 25860
     fn check_fn(
         &mut self,
-        _early_context: &rustc_lint::EarlyContext<'_>,
+        early_context: &rustc_lint::EarlyContext<'_>,
         fn_kind: rustc_ast::visit::FnKind<'_>,
         _fn_span: Span,
         _node_id: rustc_ast::NodeId,
@@ -137,26 +137,22 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         let rustc_ast::visit::FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
             return;
         };
-        // dbg!(node_id);
         let declared_lifetimes_ast = get_declared_lifetimes_spans_ast(generics);
         if declared_lifetimes_ast.len() <= 1 {
             return;
         }
-        // dbg!(&declared_lifetimes_ast);
         let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
         for param in &fn_sig.decl.inputs {
-            // dbg!("param.ty");
             linter.collect_implied_lifetime_bounds_ast(&param.ty);
         }
         if let rustc_ast::ast::FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
-            // dbg!("ret_ty");
             linter.collect_implied_lifetime_bounds_ast(ret_ty);
         }
-        dbg!(linter);
+        linter.report_lints(early_context);
     }
 
     /// For issues 84591 and 100051
-    fn check_item_post(&mut self, _early_context: &rustc_lint::EarlyContext<'_>, item: &rustc_ast::Item) {
+    fn check_item_post(&mut self, early_context: &rustc_lint::EarlyContext<'_>, item: &rustc_ast::Item) {
         let rustc_ast::ItemKind::Impl(box_impl) = &item.kind else {
             return;
         };
@@ -172,7 +168,7 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         // issue 10051 for clause: impl ... for for_clause_ty
         let for_clause_ty = &box_impl.self_ty;
         linter.collect_implied_lifetime_bounds_ast(for_clause_ty);
-        dbg!(linter);
+        linter.report_lints(early_context);
     }
 }
 
@@ -180,7 +176,7 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
     /// For issue 25860
     fn check_fn<'tcx2>(
         &mut self,
-        cx: &LateContext<'tcx2>,
+        late_context: &LateContext<'tcx2>,
         fn_kind: FnKind<'tcx2>,
         _fn_decl: &'tcx2 FnDecl<'tcx2>,
         _body: &'tcx2 Body<'tcx2>,
@@ -196,16 +192,16 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
         }
         let mut linter = ImpliedBoundsLinter::new_hir(declared_lifetimes, generics);
         // collect bounds implied by nested references in input types and output type
-        let fn_sig = cx.tcx.fn_sig(local_def_id).skip_binder().skip_binder();
+        let fn_sig = late_context.tcx.fn_sig(local_def_id).skip_binder().skip_binder();
         for input_ty in fn_sig.inputs() {
             linter.collect_implied_lifetime_bounds(*input_ty);
         }
         linter.collect_implied_lifetime_bounds(fn_sig.output());
-        linter.report_lints(cx);
+        linter.report_lints(late_context);
     }
 
     /// For issues 84591 and 100051
-    fn check_item_post<'tcx2>(&mut self, cx: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
+    fn check_item_post<'tcx2>(&mut self, late_context: &LateContext<'tcx2>, item: &'tcx2 Item<'tcx2>) {
         let ItemKind::Impl(impl_item) = item.kind else {
             return;
         };
@@ -221,16 +217,16 @@ impl<'tcx> LateLintPass<'tcx> for LifetimesBoundNestedRef {
             if let Some(generic_args) = path_segment.args {
                 for generic_arg in generic_args.args {
                     if let HirGenericArg::Type(hir_arg_ty) = generic_arg {
-                        let arg_ty = hir_ty_to_ty(cx.tcx, hir_arg_ty);
+                        let arg_ty = hir_ty_to_ty(late_context.tcx, hir_arg_ty);
                         linter.collect_implied_lifetime_bounds(arg_ty);
                     }
                 }
             }
         }
         // issue 10051 for clause: impl ... for for_clause_ty
-        let for_clause_ty = hir_ty_to_ty(cx.tcx, impl_item.self_ty);
+        let for_clause_ty = hir_ty_to_ty(late_context.tcx, impl_item.self_ty);
         linter.collect_implied_lifetime_bounds(for_clause_ty);
-        linter.report_lints(cx);
+        linter.report_lints(late_context);
     }
 }
 
@@ -400,7 +396,6 @@ impl ImpliedBoundsLinter {
         outlived_lft_sym_span_opt: Option<(Symbol, Span)>,
     ) {
         for path_segment in &path.segments {
-            // dbg!(&path_segment);
             if let Some(generic_args) = &path_segment.args {
                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
                     for ab_arg in &ab_args.args {
@@ -448,8 +443,6 @@ impl ImpliedBoundsLinter {
                     if let Some(lifetime) = lifetime_opt
                         && let Some(declared_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
                     {
-                        // dbg!(declared_lifetime_sym);
-                        // dbg!(lifetime.ident.span);
                         if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
                             self.add_implied_bound(lifetime.ident.name, outlived_lft_sym_span.0);
                             self.add_implied_bound_spans(
@@ -478,8 +471,10 @@ impl ImpliedBoundsLinter {
                         outliving_tys.push(tuple_ty);
                     }
                 },
-                Path(_qual_self_opt, path) => {
-                    // Ignore _qual_self_opt, i.e. "as". Only check path:
+                Path(q_self_opt, path) => {
+                    if let Some(q_self) = q_self_opt {
+                        outliving_tys.push(&q_self.ty);
+                    }
                     self.collect_nested_ref_bounds_ast_path(path, outlived_lft_sym_span_opt);
                 },
                 TraitObject(generic_bounds, _trait_object_syntax) => {
@@ -624,7 +619,7 @@ impl ImpliedBoundsLinter {
         self.declared_lifetimes_spans.get(&lft_sym).copied()
     }
 
-    fn report_lints(self, cx: &LateContext<'_>) {
+    fn report_lints<T: LintContext>(self, cx: &T) {
         for implied_bound in &self.implied_bounds {
             if !self.declared_bounds_spans.contains_key(implied_bound) {
                 let declaration = implied_bound.as_bound_declaration();
