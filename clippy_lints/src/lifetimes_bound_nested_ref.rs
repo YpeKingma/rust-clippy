@@ -124,16 +124,16 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         let FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
             return;
         };
-        let declared_lifetimes_ast = get_declared_lifetimes_spans_ast(generics);
-        if declared_lifetimes_ast.len() <= 1 {
+        let declared_lifetimes_spans = get_declared_lifetimes_spans(generics);
+        if declared_lifetimes_spans.len() <= 1 {
             return;
         }
-        let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes_ast, generics);
+        let mut linter = ImpliedBoundsLinter::new(declared_lifetimes_spans, generics);
         for param in &fn_sig.decl.inputs {
-            linter.collect_implied_lifetime_bounds_ast(&param.ty);
+            linter.collect_implied_lifetime_bounds(&param.ty);
         }
         if let FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
-            linter.collect_implied_lifetime_bounds_ast(ret_ty);
+            linter.collect_implied_lifetime_bounds(ret_ty);
         }
         linter.report_lints(early_context);
     }
@@ -146,15 +146,15 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
         let Some(of_trait_ref) = &box_impl.of_trait else {
             return;
         };
-        let declared_lifetimes = get_declared_lifetimes_spans_ast(&box_impl.generics);
+        let declared_lifetimes = get_declared_lifetimes_spans(&box_impl.generics);
         if declared_lifetimes.len() <= 1 {
             return;
         }
-        let mut linter = ImpliedBoundsLinter::new_ast(declared_lifetimes, &box_impl.generics);
-        linter.collect_nested_ref_bounds_ast_path(&of_trait_ref.path, None);
+        let mut linter = ImpliedBoundsLinter::new(declared_lifetimes, &box_impl.generics);
+        linter.collect_implied_lifetime_bounds_path(&of_trait_ref.path);
         // issue 10051 for clause: impl ... for for_clause_ty
         let for_clause_ty = &box_impl.self_ty;
-        linter.collect_implied_lifetime_bounds_ast(for_clause_ty);
+        linter.collect_implied_lifetime_bounds(for_clause_ty);
         linter.report_lints(early_context);
     }
 }
@@ -202,7 +202,7 @@ impl Ord for BoundLftPair {
     }
 }
 
-fn get_declared_lifetimes_spans_ast(generics: &Generics) -> FxHashMap<Symbol, Span> {
+fn get_declared_lifetimes_spans(generics: &Generics) -> FxHashMap<Symbol, Span> {
     generics
         .params
         .iter()
@@ -216,7 +216,7 @@ fn get_declared_lifetimes_spans_ast(generics: &Generics) -> FxHashMap<Symbol, Sp
         .collect()
 }
 
-fn get_declared_bounds_spans_ast(generics: &Generics) -> BTreeMap<BoundLftPair, Span> {
+fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span> {
     let mut declared_bounds = BTreeMap::new();
     generics.params.iter().for_each(|gp| {
         if !gp.bounds.is_empty() {
@@ -245,18 +245,16 @@ fn get_declared_bounds_spans_ast(generics: &Generics) -> BTreeMap<BoundLftPair, 
 struct ImpliedBoundsLinter {
     declared_lifetimes_spans: FxHashMap<Symbol, Span>,
     generics_span: Span,
-    declared_bounds_spans: BTreeMap<BoundLftPair, Span>, // BTree for consistent reporting order
-    // implied_bounds: BTreeSet<BoundLftPair>,              // BTree for consistent reporting order
-    implied_bounds_spans: BTreeMap<BoundLftPair, (Span, Span)>, // BTree for consistent reporting order
+    declared_bounds_spans: BTreeMap<BoundLftPair, Span>,
+    implied_bounds_spans: BTreeMap<BoundLftPair, (Span, Span)>,
 }
 
 impl ImpliedBoundsLinter {
-    fn new_ast(declared_lifetimes_spans_ast: FxHashMap<Symbol, Span>, generics: &Generics) -> Self {
+    fn new(declared_lifetimes_spans: FxHashMap<Symbol, Span>, generics: &Generics) -> Self {
         ImpliedBoundsLinter {
-            declared_lifetimes_spans: declared_lifetimes_spans_ast,
-            declared_bounds_spans: get_declared_bounds_spans_ast(generics),
+            declared_lifetimes_spans,
+            declared_bounds_spans: get_declared_bounds_spans(generics),
             generics_span: generics.span,
-            // implied_bounds: BTreeSet::new(),
             implied_bounds_spans: BTreeMap::new(),
         }
     }
@@ -265,7 +263,11 @@ impl ImpliedBoundsLinter {
         lft_sym_opt.filter(|lft_sym| self.declared_lifetimes_spans.contains_key(lft_sym))
     }
 
-    fn collect_nested_ref_bounds_ast_path(&mut self, path: &Path, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
+    fn collect_implied_lifetime_bounds_path(&mut self, path: &Path) {
+        self.collect_nested_ref_bounds_path(path, None);
+    }
+
+    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
         for path_segment in &path.segments {
             if let Some(generic_args) = &path_segment.args {
                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
@@ -284,7 +286,7 @@ impl ImpliedBoundsLinter {
                                     }
                                 },
                                 Type(p_ty) => {
-                                    self.collect_nested_ref_bounds_ast(&p_ty, outlived_lft_sym_span_opt);
+                                    self.collect_nested_ref_bounds(&p_ty, outlived_lft_sym_span_opt);
                                 },
                                 Const(_anon_const) => {},
                             }
@@ -295,11 +297,11 @@ impl ImpliedBoundsLinter {
         }
     }
 
-    fn collect_implied_lifetime_bounds_ast(&mut self, ty: &Ty) {
-        self.collect_nested_ref_bounds_ast(ty, None);
+    fn collect_implied_lifetime_bounds(&mut self, ty: &Ty) {
+        self.collect_nested_ref_bounds(ty, None);
     }
 
-    fn collect_nested_ref_bounds_ast(&mut self, outliving_ty: &Ty, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
+    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_sym_span_opt: Option<(Symbol, Span)>) {
         use TyKind::*;
         let mut outliving_tys = vec![outliving_ty];
         while let Some(ty) = outliving_tys.pop() {
@@ -307,7 +309,7 @@ impl ImpliedBoundsLinter {
                 Ref(lifetime_opt, referred_to_mut_ty) => {
                     let referred_to_ty = &referred_to_mut_ty.ty;
                     if let Some(lifetime) = lifetime_opt
-                        && let Some(declared_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
+                        && let Some(ref_lifetime_sym) = self.declared_lifetime_sym(Some(lifetime.ident.name))
                     {
                         if let Some(outlived_lft_sym_span) = outlived_lft_sym_span_opt {
                             self.add_implied_bound_spans(
@@ -317,10 +319,7 @@ impl ImpliedBoundsLinter {
                                 outlived_lft_sym_span.1,
                             );
                         }
-                        self.collect_nested_ref_bounds_ast(
-                            referred_to_ty,
-                            Some((declared_lifetime_sym, lifetime.ident.span)),
-                        );
+                        self.collect_nested_ref_bounds(referred_to_ty, Some((ref_lifetime_sym, lifetime.ident.span)));
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
@@ -340,10 +339,9 @@ impl ImpliedBoundsLinter {
                     if let Some(q_self) = q_self_opt {
                         outliving_tys.push(&q_self.ty);
                     }
-                    self.collect_nested_ref_bounds_ast_path(path, outlived_lft_sym_span_opt);
+                    self.collect_nested_ref_bounds_path(path, outlived_lft_sym_span_opt);
                 },
                 TraitObject(generic_bounds, _trait_object_syntax) => {
-                    // FIXME: add self.collect_nested_ref_generic_bounds_ast(generic_bounds, outlived_lft_opt)
                     for generic_bound in generic_bounds {
                         use GenericBound::*;
                         match generic_bound {
@@ -357,7 +355,6 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 ImplTrait(_node_id, _generic_bounds) => {
-                    // FIXME: use collect_nested_ref_generic_bounds_ast
                     dbg!(&ty);
                 },
                 AnonStruct(..) | AnonUnion(..) | BareFn(..) | CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer
