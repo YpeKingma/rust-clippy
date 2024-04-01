@@ -26,14 +26,14 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
-use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_sugg};
+use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_then};
 use rustc_ast::visit::FnKind;
 use rustc_ast::{
     AngleBracketedArg, FnRetTy, GenericArg, GenericArgs, GenericBound, GenericParamKind, Generics, Item, ItemKind,
     NodeId, Path, Ty, TyKind, WherePredicate,
 };
 use rustc_errors::Applicability;
-use rustc_lint::{EarlyContext, EarlyLintPass};
+use rustc_lint::{EarlyContext, EarlyLintPass, Lint, LintContext};
 use rustc_session::impl_lint_pass;
 use rustc_span::{Span, Symbol};
 
@@ -222,7 +222,6 @@ fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span
     generics.params.iter().for_each(|gp| {
         if !gp.bounds.is_empty() {
             let long_lft_sym = gp.ident.name;
-            let _colon_span_opt = gp.colon_span;
             gp.bounds.iter().for_each(|bound| {
                 if let GenericBound::Outlives(outlived_lft) = bound {
                     let decl_span = if let Some(colon_span) = gp.colon_span {
@@ -240,6 +239,7 @@ fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span
             let long_lft_sym = wrp.lifetime.ident.name;
             wrp.bounds.iter().for_each(|bound| {
                 if let GenericBound::Outlives(outlived_lft) = bound {
+                    // CHECKME: how to make a good span for the lifetimes bound declaration here?
                     declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), wrp.span);
                 }
             })
@@ -350,17 +350,6 @@ impl ImpliedBoundsLinter {
                 },
                 TraitObject(_generic_bounds, _trait_object_syntax) => {
                     // CHECKME: use the outlived lifetimes in the generic bounds?
-                    // for generic_bound in generic_bounds {
-                    //     use GenericBound::*;
-                    //     match generic_bound {
-                    //         Trait(_poly_trait_ref, _trait_bound_modifier) => {
-                    //             dbg!(generic_bound);
-                    //         },
-                    //         Outlives(_lifetime) => {
-                    //             dbg!(generic_bound);
-                    //         },
-                    //     }
-                    // }
                 },
                 ImplTrait(_node_id, _generic_bounds) => {
                     // CHECKME: use the generic bounds as for TraitObject?
@@ -412,19 +401,23 @@ impl ImpliedBoundsLinter {
     }
 
     fn report_lints(self, cx: &EarlyContext<'_>) {
+        let bound_implied_here_note = "this lifetimes bound is implied here:";
         for implied_bound_spans in &self.implied_bounds_spans {
+            let (outlived_lft_span, long_lft_span) = implied_bound_spans.1;
+            let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
             if !self.declared_bounds_spans.contains_key(implied_bound_spans.0) {
                 let declaration = implied_bound_spans.0.as_bound_declaration();
                 let msg = &format!("missing lifetimes bound declaration: {declaration}");
                 if let Some(long_lft_decl_span) = self.get_declared_lifetime_span(implied_bound_spans.0.long_lft_sym) {
-                    span_lint_and_sugg(
+                    span_lint_and_fix_sugg_and_note(
                         cx,
                         EXPLICIT_LIFETIMES_BOUND,
                         long_lft_decl_span,
                         msg,
                         "try",
                         declaration,
-                        Applicability::MachineApplicable,
+                        nested_ref_span,
+                        bound_implied_here_note,
                     );
                 } else {
                     span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg);
@@ -432,19 +425,19 @@ impl ImpliedBoundsLinter {
             }
         }
 
-        for (declared_bound, predicate_span) in self.declared_bounds_spans {
-            if let Some((span1, span2)) = self.implied_bounds_spans.get(&declared_bound) {
-                let nested_ref_span = spans_merge(*span1, *span2);
+        for (declared_bound, decl_span) in self.declared_bounds_spans {
+            if let Some((outlived_lft_span, long_lft_span)) = self.implied_bounds_spans.get(&declared_bound) {
+                let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
                 span_lint_and_help(
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
-                    predicate_span,
+                    decl_span,
                     &format!(
                         "declared lifetimes bound is redundant: {}",
                         declared_bound.as_bound_declaration(),
                     ),
                     Some(nested_ref_span),
-                    "this lifetimes bound is implied here:",
+                    bound_implied_here_note,
                 );
             }
         }
@@ -469,4 +462,22 @@ fn spans_merge(span1: Span, span2: Span) -> Span {
         span1.ctxt(),
         span1.parent(),
     )
+}
+
+/// Combine span_lint_and_sugg and span_lint_and_help:
+/// give a lint error, a suggestion to fix, and a note on the cause of the lint in the code.
+fn span_lint_and_fix_sugg_and_note<T: LintContext>(
+    cx: &T,
+    lint: &'static Lint,
+    sp: Span,
+    msg: &str,
+    fix_help: &str,
+    sugg: String,
+    cause_span: Span,
+    cause_note: &'static str,
+) {
+    span_lint_and_then(cx, lint, sp, msg, |diag| {
+        diag.span_suggestion(sp, fix_help.to_string(), sugg, Applicability::MachineApplicable);
+        diag.span_help(cause_span, cause_note);
+    });
 }
