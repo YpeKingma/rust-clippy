@@ -123,7 +123,7 @@ impl_lint_pass!(LifetimesBoundNestedRef => [
 impl EarlyLintPass for LifetimesBoundNestedRef {
     /// For issue 25860
     fn check_fn(&mut self, early_context: &EarlyContext<'_>, fn_kind: FnKind<'_>, _fn_span: Span, _node_id: NodeId) {
-        let FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _block_opt) = fn_kind else {
+        let FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _opt_block) = fn_kind else {
             return;
         };
         let declared_lifetimes_spans = get_declared_lifetimes_spans(generics);
@@ -271,7 +271,7 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds_path(path, None);
     }
 
-    fn collect_nested_ref_bounds_path(&mut self, path: &Path, outlived_lft_ident_opt: Option<&Ident>) {
+    fn collect_nested_ref_bounds_path(&mut self, path: &Path, opt_outlived_lft_ident: Option<&Ident>) {
         for path_segment in &path.segments {
             if let Some(generic_args) = &path_segment.args {
                 if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
@@ -280,12 +280,12 @@ impl ImpliedBoundsLinter {
                             use GenericArg::*;
                             match generic_arg {
                                 Lifetime(long_lft) => {
-                                    if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
+                                    if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                                         self.add_implied_bound_spans(&long_lft.ident, outlived_lft_ident);
                                     }
                                 },
                                 Type(p_ty) => {
-                                    self.collect_nested_ref_bounds(&p_ty, outlived_lft_ident_opt);
+                                    self.collect_nested_ref_bounds(&p_ty, opt_outlived_lft_ident);
                                 },
                                 Const(_anon_const) => {},
                             }
@@ -300,17 +300,18 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds(ty, None);
     }
 
-    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, outlived_lft_ident_opt: Option<&Ident>) {
+    fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, opt_outlived_lft_ident: Option<&Ident>) {
         use TyKind::*;
         let mut outliving_tys = vec![outliving_ty];
         while let Some(ty) = outliving_tys.pop() {
             match &ty.kind {
-                Ref(lifetime_opt, referred_to_mut_ty) => {
+                Ref(opt_lifetime, referred_to_mut_ty) => {
+                    // common to issues 25860, 84591 and 100051
                     let referred_to_ty = &referred_to_mut_ty.ty;
-                    if let Some(lifetime) = lifetime_opt
+                    if let Some(lifetime) = opt_lifetime
                         && self.declared_lifetimes_spans.contains_key(&lifetime.ident.name)
                     {
-                        if let Some(outlived_lft_ident) = outlived_lft_ident_opt {
+                        if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                             self.add_implied_bound_spans(&lifetime.ident, outlived_lft_ident);
                         }
                         self.collect_nested_ref_bounds(referred_to_ty, Some(&lifetime.ident));
@@ -319,36 +320,79 @@ impl ImpliedBoundsLinter {
                     }
                 },
                 Slice(element_ty) => {
+                    // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 Array(element_ty, _anon_const) => {
+                    // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 Tup(tuple_tys) => {
+                    // 20240328: not needed to detect reported issues
                     for tuple_ty in tuple_tys {
                         outliving_tys.push(tuple_ty);
                     }
                 },
-                Path(q_self_opt, path) => {
-                    if let Some(q_self) = q_self_opt {
+                Path(opt_q_self, path) => {
+                    if let Some(q_self) = opt_q_self {
+                        // issue 100051
                         outliving_tys.push(&q_self.ty);
                     }
-                    self.collect_nested_ref_bounds_path(path, outlived_lft_ident_opt);
+                    self.collect_nested_ref_bounds_path(path, opt_outlived_lft_ident);
                 },
-                TraitObject(_generic_bounds, _trait_object_syntax) => {
-                    // CHECKME: use the outlived lifetimes in the generic bounds?
+                TraitObject(generic_bounds, _trait_object_syntax) => {
+                    // dyn, 20240328: not needed to detect reported issues
+                    self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
-                ImplTrait(_node_id, _generic_bounds) => {
-                    // CHECKME: use the generic bounds as for TraitObject?
+                ImplTrait(_node_id, generic_bounds) => {
+                    // impl, 20240328: not needed to detect reported issues
+                    self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
                 AnonStruct(_node_id, _field_defs) | AnonUnion(_node_id, _field_defs) => {
-                    // CHECKME: use the type in the field definitions?
+                    // CHECKME: can the field definition types of an anonymus struct/union have
+                    // generic lifetimes?
                 },
                 BareFn(_bare_fn_ty) => {
-                    // CHECKME: use the generic params and the function definition?
+                    // CHECKME: can bare functions have generic lifetimes?
                 },
                 CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer | MacCall(..) | Never | Paren(..) | Ptr(..)
                 | Typeof(..) => {},
+            }
+        }
+    }
+
+    fn collect_nested_ref_bounds_gbs(
+        &mut self,
+        generic_bounds: &Vec<GenericBound>,
+        opt_outlived_lft_ident: Option<&Ident>,
+    ) {
+        for gb in generic_bounds {
+            use GenericBound::*;
+            match gb {
+                Trait(poly_trait_ref, _trait_bound_modifiers) => {
+                    for bgp in &poly_trait_ref.bound_generic_params {
+                        use GenericParamKind::*;
+                        match &bgp.kind {
+                            Lifetime => {
+                                if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
+                                    let long_lft_ident = bgp.ident;
+                                    self.add_implied_bound_spans(&long_lft_ident, outlived_lft_ident);
+                                }
+                            },
+                            Type { default: opt_p_ty } => {
+                                if let Some(ty) = opt_p_ty {
+                                    self.collect_nested_ref_bounds(ty, opt_outlived_lft_ident);
+                                }
+                            },
+                            Const { ty, .. } => {
+                                self.collect_nested_ref_bounds(ty, opt_outlived_lft_ident);
+                            },
+                        }
+                    }
+                },
+                Outlives(_lifetime) => {
+                    // CHECKME: what is the meaning of GenericBound::Outlives ?
+                },
             }
         }
     }
