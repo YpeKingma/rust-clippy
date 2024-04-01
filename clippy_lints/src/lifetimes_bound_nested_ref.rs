@@ -22,6 +22,7 @@
 ///
 /// The lints here are in the nursery category.
 use std::cmp::Ordering;
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
@@ -221,9 +222,15 @@ fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span
     generics.params.iter().for_each(|gp| {
         if !gp.bounds.is_empty() {
             let long_lft_sym = gp.ident.name;
+            let _colon_span_opt = gp.colon_span;
             gp.bounds.iter().for_each(|bound| {
                 if let GenericBound::Outlives(outlived_lft) = bound {
-                    declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), gp.span());
+                    let decl_span = if let Some(colon_span) = gp.colon_span {
+                        spans_merge(colon_span, outlived_lft.ident.span)
+                    } else {
+                        outlived_lft.ident.span
+                    };
+                    declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), decl_span);
                 }
             });
         }
@@ -342,7 +349,7 @@ impl ImpliedBoundsLinter {
                     self.collect_nested_ref_bounds_path(path, outlived_lft_sym_span_opt);
                 },
                 TraitObject(_generic_bounds, _trait_object_syntax) => {
-                    // CHECKME: use the outlived lifetimes in generic bounds?
+                    // CHECKME: use the outlived lifetimes in the generic bounds?
                     // for generic_bound in generic_bounds {
                     //     use GenericBound::*;
                     //     match generic_bound {
@@ -359,10 +366,10 @@ impl ImpliedBoundsLinter {
                     // CHECKME: use the generic bounds as for TraitObject?
                 },
                 AnonStruct(_node_id, _field_defs) | AnonUnion(_node_id, _field_defs) => {
-                    // CHECKME: use the type in the field defs?
+                    // CHECKME: use the type in the field definitions?
                 },
                 BareFn(_bare_fn_ty) => {
-                    // CHECKME: use generic params and function definition?
+                    // CHECKME: use the generic params and the function definition?
                 },
                 CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer | MacCall(..) | Never | Paren(..) | Ptr(..)
                 | Typeof(..) => {},
@@ -379,10 +386,24 @@ impl ImpliedBoundsLinter {
     ) {
         if long_lft_sym != outlived_lft_sym {
             // only unequal symbols form a lifetime bound
-            self.implied_bounds_spans.insert(
-                BoundLftPair::new(long_lft_sym, outlived_lft_sym),
-                (long_lft_span, outlived_lft_span),
-            );
+            match self
+                .implied_bounds_spans
+                .entry(BoundLftPair::new(long_lft_sym, outlived_lft_sym))
+            {
+                Entry::Vacant(ve) => {
+                    // in nested references the outlived lifetime occurs first
+                    ve.insert((outlived_lft_span, long_lft_span));
+                },
+                Entry::Occupied(mut oe) => {
+                    // keep the first occurrence of the nested reference
+                    let prev_spans = oe.get_mut();
+                    if span_is_before(outlived_lft_span, prev_spans.0)
+                        || (outlived_lft_span == prev_spans.0 && span_is_before(long_lft_span, prev_spans.1))
+                    {
+                        *prev_spans = (outlived_lft_span, long_lft_span);
+                    }
+                },
+            }
         }
     }
 
@@ -412,20 +433,40 @@ impl ImpliedBoundsLinter {
         }
 
         for (declared_bound, predicate_span) in self.declared_bounds_spans {
-            if self.implied_bounds_spans.contains_key(&declared_bound) {
-                let help_span = None; // the span of the nested ref would be better
+            if let Some((span1, span2)) = self.implied_bounds_spans.get(&declared_bound) {
+                let nested_ref_span = spans_merge(*span1, *span2);
                 span_lint_and_help(
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
                     predicate_span,
                     &format!(
-                        "declared lifetimes bound is implied: {}",
+                        "declared lifetimes bound is redundant: {}",
                         declared_bound.as_bound_declaration(),
                     ),
-                    help_span,
-                    "consider removing this lifetimes bound",
+                    Some(nested_ref_span),
+                    "this lifetimes bound is implied here:",
                 );
             }
         }
     }
+}
+
+fn span_is_before(span1: Span, span2: Span) -> bool {
+    let lo1 = span1.lo();
+    let lo2 = span2.lo();
+    use Ordering::*;
+    match lo1.cmp(&lo2) {
+        Less => true,
+        Greater => false,
+        Equal => span1.hi() < span2.hi(),
+    }
+}
+
+fn spans_merge(span1: Span, span2: Span) -> Span {
+    Span::new(
+        span1.lo().min(span2.lo()),
+        span1.hi().max(span2.hi()),
+        span1.ctxt(),
+        span1.parent(),
+    )
 }
