@@ -280,7 +280,7 @@ impl ImpliedBoundsLinter {
                             match generic_arg {
                                 GA::Lifetime(long_lft) => {
                                     if let Some(outlived_lft_ident) = opt_outlived_lft_ident
-                                        && self.is_declared_lifetime_sym(outlived_lft_ident.name)
+                                        && self.is_declared_lifetime_sym(long_lft.ident.name)
                                     {
                                         self.add_implied_bound_spans(&long_lft.ident, outlived_lft_ident);
                                     }
