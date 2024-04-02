@@ -442,14 +442,14 @@ impl ImpliedBoundsLinter {
         for (implied_bound, (outlived_lft_span, long_lft_span)) in &self.implied_bounds_spans {
             if !self.declared_bounds_spans.contains_key(implied_bound) {
                 let declaration = implied_bound.as_bound_declaration();
-                let msg_missing = &format!("missing lifetimes bound declaration: {declaration}");
+                let msg_missing = format!("missing lifetimes bound declaration: {declaration}");
                 if let Some(long_lft_decl_span) = self.declared_lifetimes_spans.get(&implied_bound.long_lft_sym) {
                     let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
                     span_lint_and_fix_sugg_and_note_cause(
                         cx,
                         EXPLICIT_LIFETIMES_BOUND,
                         *long_lft_decl_span,
-                        msg_missing,
+                        &msg_missing,
                         "try",
                         declaration,
                         nested_ref_span,
@@ -469,7 +469,7 @@ impl ImpliedBoundsLinter {
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
                     decl_span,
-                    &format!(
+                    format!(
                         "declared lifetimes bound is redundant: {}",
                         declared_bound.as_bound_declaration(),
                     ),
@@ -513,7 +513,7 @@ fn span_lint_and_fix_sugg_and_note_cause<T: LintContext>(
     cause_span: Span,
     cause_note: &'static str,
 ) {
-    span_lint_and_then(cx, lint, sp, msg, |diag| {
+    span_lint_and_then(cx, lint, sp, msg.to_owned(), |diag| {
         diag.span_suggestion(sp, fix_help.to_string(), sugg, Applicability::MachineApplicable);
         diag.span_note(cause_span, cause_note);
     });
