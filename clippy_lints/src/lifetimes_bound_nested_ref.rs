@@ -24,7 +24,6 @@
 use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
-use std::ops::Deref;
 
 use clippy_utils::diagnostics::{span_lint, span_lint_and_note, span_lint_and_then};
 use rustc_ast::visit::FnKind;
@@ -243,7 +242,7 @@ fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span
                     // CHECKME: how to make a good span for the lifetimes bound declaration here?
                     declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), wrp.span);
                 }
-            })
+            });
         }
     });
     declared_bounds
@@ -274,20 +273,20 @@ impl ImpliedBoundsLinter {
     fn collect_nested_ref_bounds_path(&mut self, path: &Path, opt_outlived_lft_ident: Option<&Ident>) {
         for path_segment in &path.segments {
             if let Some(generic_args) = &path_segment.args {
-                if let GenericArgs::AngleBracketed(ab_args) = generic_args.deref() {
+                if let GenericArgs::AngleBracketed(ab_args) = &**generic_args {
                     for ab_arg in &ab_args.args {
                         if let AngleBracketedArg::Arg(generic_arg) = ab_arg {
-                            use GenericArg::*;
+                            use GenericArg as GA;
                             match generic_arg {
-                                Lifetime(long_lft) => {
+                                GA::Lifetime(long_lft) => {
                                     if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                                         self.add_implied_bound_spans(&long_lft.ident, outlived_lft_ident);
                                     }
                                 },
-                                Type(p_ty) => {
-                                    self.collect_nested_ref_bounds(&p_ty, opt_outlived_lft_ident);
+                                GA::Type(p_ty) => {
+                                    self.collect_nested_ref_bounds(p_ty, opt_outlived_lft_ident);
                                 },
-                                Const(_anon_const) => {},
+                                GA::Const(_anon_const) => {},
                             }
                         }
                     }
@@ -301,11 +300,11 @@ impl ImpliedBoundsLinter {
     }
 
     fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, opt_outlived_lft_ident: Option<&Ident>) {
-        use TyKind::*;
+        use TyKind as TK;
         let mut outliving_tys = vec![outliving_ty];
         while let Some(ty) = outliving_tys.pop() {
             match &ty.kind {
-                Ref(opt_lifetime, referred_to_mut_ty) => {
+                TK::Ref(opt_lifetime, referred_to_mut_ty) => {
                     // common to issues 25860, 84591 and 100051
                     let referred_to_ty = &referred_to_mut_ty.ty;
                     if let Some(lifetime) = opt_lifetime
@@ -319,44 +318,52 @@ impl ImpliedBoundsLinter {
                         outliving_tys.push(referred_to_ty);
                     }
                 },
-                Slice(element_ty) => {
+                TK::Slice(element_ty) => {
                     // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
-                Array(element_ty, _anon_const) => {
+                TK::Array(element_ty, _anon_const) => {
                     // 20240328: not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
-                Tup(tuple_tys) => {
+                TK::Tup(tuple_tys) => {
                     // 20240328: not needed to detect reported issues
                     for tuple_ty in tuple_tys {
                         outliving_tys.push(tuple_ty);
                     }
                 },
-                Path(opt_q_self, path) => {
+                TK::Path(opt_q_self, path) => {
                     if let Some(q_self) = opt_q_self {
                         // issue 100051
                         outliving_tys.push(&q_self.ty);
                     }
                     self.collect_nested_ref_bounds_path(path, opt_outlived_lft_ident);
                 },
-                TraitObject(generic_bounds, _trait_object_syntax) => {
+                TK::TraitObject(generic_bounds, _trait_object_syntax) => {
                     // dyn, 20240328: not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
-                ImplTrait(_node_id, generic_bounds) => {
+                TK::ImplTrait(_node_id, generic_bounds) => {
                     // impl, 20240328: not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
-                AnonStruct(_node_id, _field_defs) | AnonUnion(_node_id, _field_defs) => {
+                TK::AnonStruct(_node_id, _field_defs) | TK::AnonUnion(_node_id, _field_defs) => {
                     // CHECKME: can the field definition types of an anonymus struct/union have
                     // generic lifetimes?
                 },
-                BareFn(_bare_fn_ty) => {
-                    // CHECKME: can bare functions have generic lifetimes?
+                TK::BareFn(_bare_fn_ty) => {
+                    // ignore lifetimes on bare functions
                 },
-                CVarArgs | Dummy | Err(..) | ImplicitSelf | Infer | MacCall(..) | Never | Paren(..) | Ptr(..)
-                | Typeof(..) => {},
+                TK::CVarArgs
+                | TK::Dummy
+                | TK::Err(..)
+                | TK::ImplicitSelf
+                | TK::Infer
+                | TK::MacCall(..)
+                | TK::Never
+                | TK::Paren(..)
+                | TK::Ptr(..)
+                | TK::Typeof(..) => {},
             }
         }
     }
@@ -367,30 +374,30 @@ impl ImpliedBoundsLinter {
         opt_outlived_lft_ident: Option<&Ident>,
     ) {
         for gb in generic_bounds {
-            use GenericBound::*;
+            use GenericBound as GB;
             match gb {
-                Trait(poly_trait_ref, _trait_bound_modifiers) => {
+                GB::Trait(poly_trait_ref, _trait_bound_modifiers) => {
                     for bgp in &poly_trait_ref.bound_generic_params {
-                        use GenericParamKind::*;
+                        use GenericParamKind as GPK;
                         match &bgp.kind {
-                            Lifetime => {
+                            GPK::Lifetime => {
                                 if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                                     let long_lft_ident = bgp.ident;
                                     self.add_implied_bound_spans(&long_lft_ident, outlived_lft_ident);
                                 }
                             },
-                            Type { default: opt_p_ty } => {
+                            GPK::Type { default: opt_p_ty } => {
                                 if let Some(ty) = opt_p_ty {
                                     self.collect_nested_ref_bounds(ty, opt_outlived_lft_ident);
                                 }
                             },
-                            Const { ty, .. } => {
+                            GPK::Const { ty, .. } => {
                                 self.collect_nested_ref_bounds(ty, opt_outlived_lft_ident);
                             },
                         }
                     }
                 },
-                Outlives(_lifetime) => {
+                GB::Outlives(_lifetime) => {
                     // CHECKME: what is the meaning of GenericBound::Outlives ?
                 },
             }
@@ -470,11 +477,10 @@ impl ImpliedBoundsLinter {
 fn span_is_before(span1: Span, span2: Span) -> bool {
     let lo1 = span1.lo();
     let lo2 = span2.lo();
-    use Ordering::*;
     match lo1.cmp(&lo2) {
-        Less => true,
-        Greater => false,
-        Equal => span1.hi() < span2.hi(),
+        Ordering::Less => true,
+        Ordering::Greater => false,
+        Ordering::Equal => span1.hi() < span2.hi(),
     }
 }
 
@@ -487,8 +493,9 @@ fn spans_merge(span1: Span, span2: Span) -> Span {
     )
 }
 
-/// Combine span_lint_and_sugg and span_lint_and_help:
+/// Combine `span_lint_and_sugg and `span_lint_and_help`:
 /// give a lint error, a suggestion to fix, and a note on the cause of the lint in the code.
+#[allow(clippy::too_many_arguments)]
 fn span_lint_and_fix_sugg_and_note_cause<T: LintContext>(
     cx: &T,
     lint: &'static Lint,
