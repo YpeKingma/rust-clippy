@@ -26,7 +26,7 @@ use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::ops::Deref;
 
-use clippy_utils::diagnostics::{span_lint, span_lint_and_help, span_lint_and_then};
+use clippy_utils::diagnostics::{span_lint, span_lint_and_note, span_lint_and_then};
 use rustc_ast::visit::FnKind;
 use rustc_ast::{
     AngleBracketedArg, FnRetTy, GenericArg, GenericArgs, GenericBound, GenericParamKind, Generics, Item, ItemKind,
@@ -442,6 +442,7 @@ impl ImpliedBoundsLinter {
                         bound_implied_here_note,
                     );
                 } else {
+                    // unreachable!();
                     span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg_missing);
                 }
             }
@@ -450,7 +451,7 @@ impl ImpliedBoundsLinter {
         for (declared_bound, decl_span) in self.declared_bounds_spans {
             if let Some((outlived_lft_span, long_lft_span)) = self.implied_bounds_spans.get(&declared_bound) {
                 let nested_ref_span = spans_merge(*outlived_lft_span, *long_lft_span);
-                span_lint_and_help(
+                span_lint_and_note(
                     cx,
                     IMPLICIT_LIFETIMES_BOUND,
                     decl_span,
