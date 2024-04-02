@@ -4,7 +4,7 @@ error: declared lifetimes bound is redundant: 'lftb: 'lfta
 LL | pub fn lifetime_translator_1<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
    |                                          ^^^^^^^
    |
-help: this lifetimes bound is implied here:
+note: this lifetimes bound is implied here:
   --> tests/ui/lifetimes_bound_nested_ref_impl.rs:7:62
    |
 LL | pub fn lifetime_translator_1<'lfta, 'lftb: 'lfta, T>(val_a: &'lfta &'lftb T, _val_b: &'lftb T) -> &'lfta T {
@@ -18,7 +18,7 @@ error: declared lifetimes bound is redundant: 'a: 'b
 LL | impl<'a: 'b, 'b> Subtrait<'a, 'b, &'b &'a ()> for MyStruct {}
    |        ^^^^
    |
-help: this lifetimes bound is implied here:
+note: this lifetimes bound is implied here:
   --> tests/ui/lifetimes_bound_nested_ref_impl.rs:27:36
    |
 LL | impl<'a: 'b, 'b> Subtrait<'a, 'b, &'b &'a ()> for MyStruct {}
@@ -30,7 +30,7 @@ error: declared lifetimes bound is redundant: 'a: 'b
 LL | impl<'a: 'b, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
    |        ^^^^
    |
-help: this lifetimes bound is implied here:
+note: this lifetimes bound is implied here:
   --> tests/ui/lifetimes_bound_nested_ref_impl.rs:43:40
    |
 LL | impl<'a: 'b, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
@@ -42,7 +42,7 @@ error: declared lifetimes bound is redundant: 'b: 'a
 LL | unsafe fn deinit_slice_mut<'a, 'b: 'a, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
    |                                  ^^^^
    |
-help: this lifetimes bound is implied here:
+note: this lifetimes bound is implied here:
   --> tests/ui/lifetimes_bound_nested_ref_impl.rs:51:47
    |
 LL | unsafe fn deinit_slice_mut<'a, 'b: 'a, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
@@ -54,7 +54,7 @@ error: declared lifetimes bound is redundant: 'a: 'b
 LL | fn test_unnamed_ref<'a: 'b, 'b>(w1: &'b mut &mut Thing1<'a>, w2: &mut Thing2<'b>) -> &'a u8 {
    |                       ^^^^
    |
-help: this lifetimes bound is implied here:
+note: this lifetimes bound is implied here:
   --> tests/ui/lifetimes_bound_nested_ref_impl.rs:66:38
    |
 LL | fn test_unnamed_ref<'a: 'b, 'b>(w1: &'b mut &mut Thing1<'a>, w2: &mut Thing2<'b>) -> &'a u8 {
