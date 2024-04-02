@@ -493,7 +493,7 @@ fn spans_merge(span1: Span, span2: Span) -> Span {
     )
 }
 
-/// Combine `span_lint_and_sugg and `span_lint_and_help`:
+/// Combine `span_lint_and_sugg` and `span_lint_and_help`:
 /// give a lint error, a suggestion to fix, and a note on the cause of the lint in the code.
 #[allow(clippy::too_many_arguments)]
 fn span_lint_and_fix_sugg_and_note_cause<T: LintContext>(
