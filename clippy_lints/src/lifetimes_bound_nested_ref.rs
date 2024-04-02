@@ -279,7 +279,9 @@ impl ImpliedBoundsLinter {
                             use GenericArg as GA;
                             match generic_arg {
                                 GA::Lifetime(long_lft) => {
-                                    if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
+                                    if let Some(outlived_lft_ident) = opt_outlived_lft_ident
+                                        && self.is_declared_lifetime_sym(outlived_lft_ident.name)
+                                    {
                                         self.add_implied_bound_spans(&long_lft.ident, outlived_lft_ident);
                                     }
                                 },
@@ -299,6 +301,10 @@ impl ImpliedBoundsLinter {
         self.collect_nested_ref_bounds(ty, None);
     }
 
+    fn is_declared_lifetime_sym(&self, lft_sym: Symbol) -> bool {
+        self.declared_lifetimes_spans.contains_key(&lft_sym)
+    }
+
     fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, opt_outlived_lft_ident: Option<&Ident>) {
         use TyKind as TK;
         let mut outliving_tys = vec![outliving_ty];
@@ -308,7 +314,7 @@ impl ImpliedBoundsLinter {
                     // common to issues 25860, 84591 and 100051
                     let referred_to_ty = &referred_to_mut_ty.ty;
                     if let Some(lifetime) = opt_lifetime
-                        && self.declared_lifetimes_spans.contains_key(&lifetime.ident.name)
+                        && self.is_declared_lifetime_sym(lifetime.ident.name)
                     {
                         if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                             self.add_implied_bound_spans(&lifetime.ident, outlived_lft_ident);
@@ -381,9 +387,10 @@ impl ImpliedBoundsLinter {
                         use GenericParamKind as GPK;
                         match &bgp.kind {
                             GPK::Lifetime => {
-                                if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
-                                    let long_lft_ident = bgp.ident;
-                                    self.add_implied_bound_spans(&long_lft_ident, outlived_lft_ident);
+                                if let Some(outlived_lft_ident) = opt_outlived_lft_ident
+                                    && self.is_declared_lifetime_sym(bgp.ident.name)
+                                {
+                                    self.add_implied_bound_spans(&bgp.ident, outlived_lft_ident);
                                 }
                             },
                             GPK::Type { default: opt_p_ty } => {
