@@ -50,3 +50,39 @@ unsafe fn no_deref_ptr(a: Option<i32>, b: *const Option<i32>) -> i32 {
         _ => 0,
     }
 }
+
+const fn issue_12568(opt: Option<bool>) -> bool {
+    match opt {
+        Some(s) => s,
+        None => false,
+    }
+}
+
+fn issue_12569() {
+    let match_none_se = match 1u32.checked_div(0) {
+        Some(v) => v,
+        None => {
+            println!("important");
+            0
+        },
+    };
+    let match_some_se = match 1u32.checked_div(0) {
+        Some(v) => {
+            println!("important");
+            v
+        },
+        None => 0,
+    };
+    let iflet_else_se = if let Some(v) = 1u32.checked_div(0) {
+        v
+    } else {
+        println!("important");
+        0
+    };
+    let iflet_then_se = if let Some(v) = 1u32.checked_div(0) {
+        println!("important");
+        v
+    } else {
+        0
+    };
+}
