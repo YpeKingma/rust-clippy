@@ -427,8 +427,8 @@ impl ImpliedBoundsLinter {
                 // keep the first occurrence of the nested reference,
                 // the insertion order here depends on the recursion order.
                 let prev_spans = prev_entry.get_mut();
-                if span_is_before(outlived_lft_ident.span, prev_spans.0)
-                    || (outlived_lft_ident.span == prev_spans.0 && span_is_before(long_lft_ident.span, prev_spans.1))
+                if (outlived_lft_ident.span < prev_spans.0)
+                    || (outlived_lft_ident.span == prev_spans.0 && (long_lft_ident.span < prev_spans.1))
                 {
                     *prev_spans = (outlived_lft_ident.span, long_lft_ident.span);
                 }
@@ -478,16 +478,6 @@ impl ImpliedBoundsLinter {
                 );
             }
         }
-    }
-}
-
-fn span_is_before(span1: Span, span2: Span) -> bool {
-    let lo1 = span1.lo();
-    let lo2 = span2.lo();
-    match lo1.cmp(&lo2) {
-        Ordering::Less => true,
-        Ordering::Greater => false,
-        Ordering::Equal => span1.hi() < span2.hi(),
     }
 }
 
