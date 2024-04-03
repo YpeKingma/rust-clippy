@@ -220,19 +220,17 @@ fn get_declared_lifetimes_spans(generics: &Generics) -> FxHashMap<Symbol, Span> 
 fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftPair, Span> {
     let mut declared_bounds = BTreeMap::new();
     generics.params.iter().for_each(|gp| {
-        if !gp.bounds.is_empty() {
-            let long_lft_sym = gp.ident.name;
-            gp.bounds.iter().for_each(|bound| {
-                if let GenericBound::Outlives(outlived_lft) = bound {
-                    let decl_span = if let Some(colon_span) = gp.colon_span {
-                        spans_merge(colon_span, outlived_lft.ident.span)
-                    } else {
-                        outlived_lft.ident.span
-                    };
-                    declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), decl_span);
-                }
-            });
-        }
+        let long_lft_sym = gp.ident.name;
+        gp.bounds.iter().for_each(|bound| {
+            if let GenericBound::Outlives(outlived_lft) = bound {
+                let decl_span = if let Some(colon_span) = gp.colon_span {
+                    spans_merge(colon_span, outlived_lft.ident.span)
+                } else {
+                    outlived_lft.ident.span
+                };
+                declared_bounds.insert(BoundLftPair::new(long_lft_sym, outlived_lft.ident.name), decl_span);
+            }
+        });
     });
     generics.where_clause.predicates.iter().for_each(|wp| {
         if let WherePredicate::RegionPredicate(wrp) = wp {
@@ -306,9 +304,9 @@ impl ImpliedBoundsLinter {
     }
 
     fn collect_nested_ref_bounds(&mut self, outliving_ty: &Ty, opt_outlived_lft_ident: Option<&Ident>) {
-        use TyKind as TK;
-        let mut outliving_tys = vec![outliving_ty];
+        let mut outliving_tys = vec![outliving_ty]; // stack to avoid recursion
         while let Some(ty) = outliving_tys.pop() {
+            use TyKind as TK;
             match &ty.kind {
                 TK::Ref(opt_lifetime, referred_to_mut_ty) => {
                     // common to issues 25860, 84591 and 100051
@@ -319,6 +317,7 @@ impl ImpliedBoundsLinter {
                         if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                             self.add_implied_bound_spans(&lifetime.ident, outlived_lft_ident);
                         }
+                        // recursion for nested references outliving lifetime
                         self.collect_nested_ref_bounds(referred_to_ty, Some(&lifetime.ident));
                     } else {
                         outliving_tys.push(referred_to_ty);
@@ -358,7 +357,7 @@ impl ImpliedBoundsLinter {
                     // generic lifetimes?
                 },
                 TK::BareFn(_bare_fn_ty) => {
-                    // ignore lifetimes on bare functions
+                    // CHECKME: can bare functions have generic lifetimes?
                 },
                 TK::CVarArgs
                 | TK::Dummy
@@ -412,27 +411,28 @@ impl ImpliedBoundsLinter {
     }
 
     fn add_implied_bound_spans(&mut self, long_lft_ident: &Ident, outlived_lft_ident: &Ident) {
-        if long_lft_ident.name != outlived_lft_ident.name {
+        if long_lft_ident.name == outlived_lft_ident.name {
             // only unequal symbols form a lifetime bound
-            match self
-                .implied_bounds_spans
-                .entry(BoundLftPair::new(long_lft_ident.name, outlived_lft_ident.name))
-            {
-                Entry::Vacant(ve) => {
-                    // in nested references the outlived lifetime occurs first
-                    ve.insert((outlived_lft_ident.span, long_lft_ident.span));
-                },
-                Entry::Occupied(mut oe) => {
-                    // keep the first occurrence of the nested reference
-                    let prev_spans = oe.get_mut();
-                    if span_is_before(outlived_lft_ident.span, prev_spans.0)
-                        || (outlived_lft_ident.span == prev_spans.0
-                            && span_is_before(long_lft_ident.span, prev_spans.1))
-                    {
-                        *prev_spans = (outlived_lft_ident.span, long_lft_ident.span);
-                    }
-                },
-            }
+            return;
+        }
+        match self
+            .implied_bounds_spans
+            .entry(BoundLftPair::new(long_lft_ident.name, outlived_lft_ident.name))
+        {
+            Entry::Vacant(new_entry) => {
+                // in nested references the outlived lifetime occurs first
+                new_entry.insert((outlived_lft_ident.span, long_lft_ident.span));
+            },
+            Entry::Occupied(mut prev_entry) => {
+                // keep the first occurrence of the nested reference,
+                // the insertion order here depends on the recursion order.
+                let prev_spans = prev_entry.get_mut();
+                if span_is_before(outlived_lft_ident.span, prev_spans.0)
+                    || (outlived_lft_ident.span == prev_spans.0 && span_is_before(long_lft_ident.span, prev_spans.1))
+                {
+                    *prev_spans = (outlived_lft_ident.span, long_lft_ident.span);
+                }
+            },
         }
     }
 
@@ -456,7 +456,7 @@ impl ImpliedBoundsLinter {
                         bound_implied_here_note,
                     );
                 } else {
-                    // unreachable!();
+                    // unreachable!(); collected only bounds on declared lifetimes
                     span_lint(cx, EXPLICIT_LIFETIMES_BOUND, self.generics_span, msg_missing);
                 }
             }
