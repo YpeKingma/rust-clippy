@@ -46,16 +46,27 @@ declare_clippy_lint! {
     /// this checks for nested references with generic lifetimes
     /// that imply a lifetimes bound because the inner reference must
     /// outlive the outer reference.
-    /// This suggests to declare such implicit lifetime bounds.
+    /// This lint suggests to declare such implicit lifetime bounds.
     /// Adding such a bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
+    /// 
+    /// So the unusual way to use this lint is:
+    /// (1) Set the lint to warn by this clippy command line argument:
+    ///      -W clippy::explicit-lifetimes-bound
+    ///     Without lint warnings, stop here.
+    /// (2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
+    ///      --fix -W clippy::explicit-lifetimes-bound
+    /// (3) Run the compiler on the fixed code.
+    ///     In case this produces a compiler error, the compiler should have given an earlier error,
+    ///     so leave the added lifetimes bound in the code and fix this code manually.
     ///
     /// ### Why is this bad?
     /// The unsoundness is described here:
     /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
     ///
     /// ### Known problems
-    /// It is not known whether this covers all cases that might lead to unsoundness.
+    /// It is not known whether this covers all cases that might lead to unsoundness for missed lifetime bounds.
+    /// Also, the automatic fix is not extensively tested, so a manually adding the implied lifetimes bound may be necessary.
     ///
     /// ### Example, the `val_a` argument implies a lifetimes bound:
     /// ```no_run
@@ -72,7 +83,7 @@ declare_clippy_lint! {
     #[clippy::version = "1.79.0"]
     pub EXPLICIT_LIFETIMES_BOUND,
     nursery,
-    "declare generic lifetime bounds implied by nested references"
+    "declare lifetime bounds implied by nested references"
 }
 
 declare_clippy_lint! {
@@ -109,7 +120,7 @@ declare_clippy_lint! {
     #[clippy::version = "1.79.0"]
     pub IMPLICIT_LIFETIMES_BOUND,
     nursery,
-    "remove declared generic lifetime bounds implied by nested references"
+    "remove declared lifetime bounds implied by nested references"
 }
 
 pub struct LifetimesBoundNestedRef;
