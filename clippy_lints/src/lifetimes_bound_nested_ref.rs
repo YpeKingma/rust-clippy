@@ -4,14 +4,14 @@
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
 /// manually adding a generic lifetime bound that is implied by a nested reference:
 ///
-///     Issue 25860:
+///     [Issue 25860](https://github.com/rust-lang/rust/issues/25860):
 ///     Implied bounds on nested references + variance = soundness hole
 ///     
-///     Issue 84591:
+///     [Issue 84591](https://github.com/rust-lang/rust/issues/84591):
 ///     HRTB on subtrait unsoundly provides HTRB on supertrait with weaker implied bounds
 ///     
-///     Issue 100051:
-///     implied bounds from projections in impl header can be unsound
+///     [Issue 100051](https://github.com/rust-lang/rust/issues/100051):
+///     Implied bounds from projections in impl header can be unsound
 ///     
 /// The lint here suggests to add such lifetime bounds in the hope that
 /// the unsoundness is avoided.
@@ -43,32 +43,45 @@ use rustc_hash::FxHashMap;
 declare_clippy_lint! {
     /// ### What it does
     /// For function arguments and return values and for implementation blocks
-    /// this checks for nested references with generic lifetimes
-    /// that imply a lifetimes bound because the inner reference must
+    /// this lint checks for nested references with declared generic lifetimes.
+    /// Such a reference implies a lifetimes bound because the inner reference must
     /// outlive the outer reference.
+    ///
     /// This lint suggests to declare such implicit lifetime bounds.
     /// Adding such a bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
-    /// 
-    /// So the unusual way to use this lint is:
-    /// (1) Set the lint to warn by this clippy command line argument:
-    ///      -W clippy::explicit-lifetimes-bound
-    ///     Without lint warnings, stop here.
-    /// (2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
-    ///      --fix -W clippy::explicit-lifetimes-bound
-    /// (3) Run the compiler on the fixed code.
-    ///     In case this produces a compiler error, the compiler should have given an earlier error,
-    ///     so leave the added lifetimes bound in the code and fix this code manually.
+    ///
+    /// The unusual way to use this lint is:
+    /// 1) Set the lint to warn by this clippy command line argument:
+    ///    ```-W clippy::explicit-lifetimes-bound```
+    ///
+    ///    Without clippy errors, stop here.
+    /// 2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
+    ///    ```--fix -W clippy::explicit-lifetimes-bound```
+    ///
+    ///    The code now has an declared explicit lifetimes bound that corresponds to the implied bound.
+    /// 3) Run the compiler on the code with the explicit lifetimes bound.
+    ///    In case the compiler now produces a compiler error on related code, the compiler should have given an earlier error.
+    ///
+    ///    Leave the added explicit lifetimes bound in the code and fix the code producing the compiler error.
+    ///
+    /// See also the reverse lint clippy::implicit-lifetimes-bound.
     ///
     /// ### Why is this bad?
-    /// The unsoundness is described here:
-    /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
+    /// The unsoundness is described
+    /// [here](https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md).
     ///
     /// ### Known problems
-    /// It is not known whether this covers all cases that might lead to unsoundness for missed lifetime bounds.
-    /// Also, the automatic fix is not extensively tested, so a manually adding the implied lifetimes bound may be necessary.
+    /// This lint tries to detect implied lifetime bounds for
+    /// [issue 25860](https://github.com/rust-lang/rust/issues/25860),
+    /// [issue 84591](https://github.com/rust-lang/rust/issues/84591), and
+    /// [issue 100051](https://github.com/rust-lang/rust/issues/100051).
+    /// It is not known whether this covers all cases that lead to unsoundness for implied lifetime bounds.
     ///
-    /// ### Example, the `val_a` argument implies a lifetimes bound:
+    /// The automatic fix is not extensively tested, so manually adding the implied lifetimes bound may be necessary.
+    ///
+    /// ### Example
+    /// Here the type of the ```val_a``` argument contains ```&'a &'b``` which implies the lifetimes bound ```'b: 'a```:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
     ///     val_b
@@ -92,19 +105,29 @@ declare_clippy_lint! {
     /// this checks for nested references with generic lifetimes
     /// that imply a lifetimes bound because the inner reference must
     /// outlive the outer reference.
+    ///
     /// This suggests to remove such implicit lifetime bounds when
     /// they are declared.
+    /// **WARNING:** Do not follow this suggestion, see "Known problems" below.
+    ///
+    /// See also the reverse lint clippy::explicit-lifetimes-bound.
     ///
     /// ### Why is this bad?
     /// The declared lifetime bounds are superfluous.
     ///
     /// ### Known problems
-    /// Removing such explicitly declared lifetime bounds may lead to the unsoundness described here:
-    /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
+    /// This lint tries to detect implied lifetime bounds for
+    /// [issue 25860](https://github.com/rust-lang/rust/issues/25860),
+    /// [issue 84591](https://github.com/rust-lang/rust/issues/84591), and
+    /// [issue 100051](https://github.com/rust-lang/rust/issues/100051).
+    /// Removing the corresponding explicitly declared lifetime bounds may lead to the unsoundness described
+    /// [here](https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md).
+    ///
     /// Removing these redundant lifetime bounds should only be done after the compiler
     /// has been fixed to deal correctly with implied lifetime bounds.
     ///
-    /// ### Example, the `val_a` argument implies a lifetimes bound:
+    /// ### Example from issue 25860.
+    /// Here the type of the ```val_a``` argument contains ```&'a &'b``` which implies the lifetimes bound ```'b: 'a```:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
     ///     val_b
@@ -116,11 +139,10 @@ declare_clippy_lint! {
     ///     val_b
     /// }
     /// ```
-
     #[clippy::version = "1.79.0"]
     pub IMPLICIT_LIFETIMES_BOUND,
     nursery,
-    "remove declared lifetime bounds implied by nested references"
+    "detect declared lifetime bounds implied by nested references"
 }
 
 pub struct LifetimesBoundNestedRef;
@@ -328,22 +350,22 @@ impl ImpliedBoundsLinter {
                         if let Some(outlived_lft_ident) = opt_outlived_lft_ident {
                             self.add_implied_bound_spans(&lifetime.ident, outlived_lft_ident);
                         }
-                        // recursion for nested references outliving lifetime
+                        // recursion for nested references outliving this lifetime
                         self.collect_nested_ref_bounds(referred_to_ty, Some(&lifetime.ident));
                     } else {
                         outliving_tys.push(referred_to_ty);
                     }
                 },
                 TK::Slice(element_ty) => {
-                    // 20240328: not needed to detect reported issues
+                    // not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 TK::Array(element_ty, _anon_const) => {
-                    // 20240328: not needed to detect reported issues
+                    // not needed to detect reported issues
                     outliving_tys.push(element_ty);
                 },
                 TK::Tup(tuple_tys) => {
-                    // 20240328: not needed to detect reported issues
+                    // not needed to detect reported issues
                     for tuple_ty in tuple_tys {
                         outliving_tys.push(tuple_ty);
                     }
@@ -356,11 +378,11 @@ impl ImpliedBoundsLinter {
                     self.collect_nested_ref_bounds_path(path, opt_outlived_lft_ident);
                 },
                 TK::TraitObject(generic_bounds, _trait_object_syntax) => {
-                    // dyn, 20240328: not needed to detect reported issues
+                    // dyn, not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
                 TK::ImplTrait(_node_id, generic_bounds) => {
-                    // impl, 20240328: not needed to detect reported issues
+                    // impl, not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
                 TK::AnonStruct(_node_id, _field_defs) | TK::AnonUnion(_node_id, _field_defs) => {
@@ -481,7 +503,8 @@ impl ImpliedBoundsLinter {
                     IMPLICIT_LIFETIMES_BOUND,
                     decl_span,
                     format!(
-                        "declared lifetimes bound is redundant: {}",
+                        // only remove the these lifetime bounds after the compiler is fixed
+                        "declared lifetimes bound: {} is redundant, but do not remove it",
                         declared_bound.as_bound_declaration(),
                     ),
                     Some(nested_ref_span),
