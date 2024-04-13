@@ -42,27 +42,25 @@ use rustc_hash::FxHashMap;
 
 declare_clippy_lint! {
     /// ### What it does
-    /// For function arguments and return values and for implementation blocks
-    /// this lint checks for nested references with declared generic lifetimes.
-    /// Such a reference implies a lifetimes bound because the inner reference must
+    /// This lint checks for nested references with declared generic lifetimes
+    /// in function arguments and return values and in implementation blocks.
+    /// Such a nested reference implies a lifetimes bound because the inner reference must
     /// outlive the outer reference.
     ///
-    /// This lint suggests to declare such implicit lifetime bounds.
-    /// Adding such a bound helps to avoid unsound code because this addition
+    /// This lint suggests to declare such implicit lifetime bounds in case they are not declared.
+    /// Adding such a lifetimes bound helps to avoid unsound code because this addition
     /// can lead to a compiler error in related source code, as observed in rustc 1.76.0.
     ///
     /// The unusual way to use this lint is:
     /// 1) Set the lint to warn by this clippy command line argument:
     ///    ```-W clippy::explicit-lifetimes-bound```
-    ///
     ///    Without clippy errors, stop here.
     /// 2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
     ///    ```--fix -W clippy::explicit-lifetimes-bound```
-    ///
     ///    The code now has an declared explicit lifetimes bound that corresponds to the implied bound.
     /// 3) Run the compiler on the code with the explicit lifetimes bound.
-    ///    In case the compiler now produces a compiler error on related code, the compiler should have given an earlier error.
-    ///
+    ///    In case the compiler now produces a compiler error on related code, 
+    ///    the compiler should already have produced this error before declaring the implied bound.
     ///    Leave the added explicit lifetimes bound in the code and fix the code producing the compiler error.
     ///
     /// See also the reverse lint clippy::implicit-lifetimes-bound.
@@ -101,14 +99,13 @@ declare_clippy_lint! {
 
 declare_clippy_lint! {
     /// ### What it does
-    /// For function arguments and return values and implementation blocks
-    /// this checks for nested references with generic lifetimes
-    /// that imply a lifetimes bound because the inner reference must
+    /// This checks for nested references with declared generic lifetimes
+    /// in function arguments and return values and in implementation blocks.
+    /// Such a nested reference implies a lifetimes bound because the inner reference must
     /// outlive the outer reference.
     ///
-    /// This suggests to remove such implicit lifetime bounds when
-    /// they are declared.
-    /// **WARNING:** Do not follow this suggestion, see "Known problems" below.
+    /// This lint shows such implicit lifetime bounds in case they are declared.
+    /// **WARNING:** Do not remove these lifetime bounds declararations, see "Known problems" below.
     ///
     /// See also the reverse lint clippy::explicit-lifetimes-bound.
     ///
