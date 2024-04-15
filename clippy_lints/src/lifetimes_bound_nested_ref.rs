@@ -2,7 +2,7 @@
 /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
 ///
 /// For the following three cases the current compiler (1.76.0) gives a later error message when
-/// manually adding a generic lifetime bound that is implied by a nested reference:
+/// declaring a generic lifetime bound that is implied by a nested reference:
 ///
 ///     [Issue 25860](https://github.com/rust-lang/rust/issues/25860):
 ///     Implied bounds on nested references + variance = soundness hole
@@ -13,14 +13,12 @@
 ///     [Issue 100051](https://github.com/rust-lang/rust/issues/100051):
 ///     Implied bounds from projections in impl header can be unsound
 ///     
-/// The lint here suggests to add such lifetime bounds in the hope that
+/// The lint here suggests to declare such lifetime bounds in the hope that
 /// the unsoundness is avoided.
 ///
 /// There is also a reverse lint that suggest to remove lifetime bounds
 /// that are implied by nested references. This reverse lint is intended to be used only
 /// when the compiler has been fixed to handle these lifetime bounds correctly.
-///
-/// The lints here are in the nursery category.
 use std::cmp::Ordering;
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
@@ -57,11 +55,11 @@ declare_clippy_lint! {
     ///    Without clippy errors, stop here.
     /// 2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
     ///    ```--fix -W clippy::explicit-lifetimes-bound```
-    ///    The code now has an declared explicit lifetimes bound that corresponds to the implied bound.
-    /// 3) Run the compiler on the code with the explicit lifetimes bound.
-    ///    In case the compiler now produces a compiler error on related code, 
+    ///    The code now has a declared explicit lifetimes bound that corresponds to the implied bound.
+    /// 3) Run the compiler on the code with this declared lifetimes bound.
+    ///    In case the compiler now produces a compiler error on related code,
     ///    the compiler should already have produced this error before declaring the implied bound.
-    ///    Leave the added explicit lifetimes bound in the code and fix the code producing the compiler error.
+    ///    Leave the added lifetimes bound in the code and fix the code producing the compiler error.
     ///
     /// See also the reverse lint clippy::implicit-lifetimes-bound.
     ///
@@ -130,7 +128,7 @@ declare_clippy_lint! {
     ///     val_b
     /// }
     /// ```
-    /// Use instead:
+    /// Only after the compiler is fixed, use instead:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
     ///     val_b
