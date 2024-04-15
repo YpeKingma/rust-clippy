@@ -163,7 +163,7 @@ fn is_ok_to_suggest<'tcx>(cx: &LateContext<'tcx>, lhs: &Expr<'tcx>, call: &CallC
         // TODO: This check currently bails if the local variable has no initializer.
         // That is overly conservative - the lint should fire even if there was no initializer,
         // but the variable has been initialized before `lhs` was evaluated.
-        if let Some(Node::Local(local)) = cx.tcx.hir().parent_id_iter(local).next().map(|p| cx.tcx.hir_node(p))
+        if let Some(Node::LetStmt(local)) = cx.tcx.hir().parent_id_iter(local).next().map(|p| cx.tcx.hir_node(p))
             && local.init.is_none()
         {
             return false;
@@ -179,6 +179,23 @@ fn is_ok_to_suggest<'tcx>(cx: &LateContext<'tcx>, lhs: &Expr<'tcx>, call: &CallC
     // See e.g. https://github.com/rust-lang/rust/pull/98445#issuecomment-1190681305 for more details.
     if cx.tcx.is_builtin_derived(impl_block) {
         return false;
+    }
+
+    // If the call expression is inside an impl block that contains the method invoked by the
+    // call expression, we bail out to avoid suggesting something that could result in endless
+    // recursion.
+    if let Some(local_block_id) = impl_block.as_local()
+        && let Some(block) = cx.tcx.hir_node_by_def_id(local_block_id).as_owner()
+    {
+        let impl_block_owner = block.def_id();
+        if cx
+            .tcx
+            .hir()
+            .parent_id_iter(lhs.hir_id)
+            .any(|parent| parent.owner == impl_block_owner)
+        {
+            return false;
+        }
     }
 
     // Find the function for which we want to check that it is implemented.
