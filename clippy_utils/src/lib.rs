@@ -2328,10 +2328,10 @@ pub fn is_slice_of_primitives(cx: &LateContext<'_>, expr: &Expr<'_>) -> Option<S
 ///
 /// Given functions `eq` and `hash` such that `eq(a, b) == true`
 /// implies `hash(a) == hash(b)`
-pub fn search_same<T, Hash, Eq>(exprs: &[T], hash: Hash, eq: Eq) -> Vec<(&T, &T)>
+pub fn search_same<T, Hash, Eq>(exprs: &[T], mut hash: Hash, mut eq: Eq) -> Vec<(&T, &T)>
 where
-    Hash: Fn(&T) -> u64,
-    Eq: Fn(&T, &T) -> bool,
+    Hash: FnMut(&T) -> u64,
+    Eq: FnMut(&T, &T) -> bool,
 {
     match exprs {
         [a, b] if eq(a, b) => return vec![(a, b)],
@@ -2505,8 +2505,9 @@ fn with_test_item_names(tcx: TyCtxt<'_>, module: LocalModDefId, f: impl Fn(&[Sym
 /// Note: Add `//@compile-flags: --test` to UI tests with a `#[test]` function
 pub fn is_in_test_function(tcx: TyCtxt<'_>, id: HirId) -> bool {
     with_test_item_names(tcx, tcx.parent_module(id), |names| {
-        tcx.hir()
-            .parent_iter(id)
+        let node = tcx.hir_node(id);
+        once((id, node))
+            .chain(tcx.hir().parent_iter(id))
             // Since you can nest functions we need to collect all until we leave
             // function scope
             .any(|(_id, node)| {
