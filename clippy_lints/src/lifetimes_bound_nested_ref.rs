@@ -376,7 +376,7 @@ impl ImpliedBoundsLinter {
                     // dyn, not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
-                TK::ImplTrait(_node_id, generic_bounds) => {
+                TK::ImplTrait(_node_id, generic_bounds, _opt_capturing_args_and_span) => {
                     // impl, not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
@@ -394,6 +394,7 @@ impl ImpliedBoundsLinter {
                 | TK::Infer
                 | TK::MacCall(..)
                 | TK::Never
+                | TK::Pat(..)
                 | TK::Paren(..)
                 | TK::Ptr(..)
                 | TK::Typeof(..) => {},
