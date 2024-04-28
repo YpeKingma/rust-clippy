@@ -40,7 +40,7 @@ use rustc_hash::FxHashMap;
 
 declare_clippy_lint! {
     /// ### What it does
-    /// This lint checks for nested references with declared generic lifetimes
+    /// Checks for nested references with declared generic lifetimes
     /// in function arguments and return values and in implementation blocks.
     /// Such a nested reference implies a lifetimes bound because the inner reference must
     /// outlive the outer reference.
@@ -51,10 +51,10 @@ declare_clippy_lint! {
     ///
     /// The unusual way to use this lint is:
     /// 1) Set the lint to warn by this clippy command line argument:
-    ///    ```-W clippy::explicit-lifetimes-bound```
+    ///    ```--warn clippy::explicit-lifetimes-bound```
     ///    Without clippy errors, stop here.
     /// 2) Add the implied lifetime bound manually, or do this automatically with these command line arguments:
-    ///    ```--fix -W clippy::explicit-lifetimes-bound```
+    ///    ```--fix --warn clippy::explicit-lifetimes-bound```
     ///    The code now has a declared explicit lifetimes bound that corresponds to the implied bound.
     /// 3) Run the compiler on the code with this declared lifetimes bound.
     ///    In case the compiler now produces a compiler error on related code,
@@ -97,7 +97,7 @@ declare_clippy_lint! {
 
 declare_clippy_lint! {
     /// ### What it does
-    /// This checks for nested references with declared generic lifetimes
+    /// Checks for nested references with declared generic lifetimes
     /// in function arguments and return values and in implementation blocks.
     /// Such a nested reference implies a lifetimes bound because the inner reference must
     /// outlive the outer reference.
@@ -121,7 +121,7 @@ declare_clippy_lint! {
     /// Removing these redundant lifetime bounds should only be done after the compiler
     /// has been fixed to deal correctly with implied lifetime bounds.
     ///
-    /// ### Example from issue 25860.
+    /// ### Example
     /// Here the type of the ```val_a``` argument contains ```&'a &'b``` which implies the lifetimes bound ```'b: 'a```:
     /// ```no_run
     /// pub const fn lifetime_translator<'a, 'b: 'a, T>(val_a: &'a &'b (), val_b: &'b T) -> &'a T {
