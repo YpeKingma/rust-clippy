@@ -381,7 +381,7 @@ impl ImpliedBoundsLinter {
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
                 TK::AnonStruct(_node_id, _field_defs) | TK::AnonUnion(_node_id, _field_defs) => {
-                    // CHECKME: can the field definition types of an anonymus struct/union have
+                    // CHECKME: can the field definition types of an anonymous struct/union have
                     // generic lifetimes?
                 },
                 TK::BareFn(_bare_fn_ty) => {
