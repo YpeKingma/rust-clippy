@@ -99,7 +99,7 @@ use rustc_hir::hir_id::{HirIdMap, HirIdSet};
 use rustc_hir::intravisit::{walk_expr, FnKind, Visitor};
 use rustc_hir::LangItem::{OptionNone, OptionSome, ResultErr, ResultOk};
 use rustc_hir::{
-    self as hir, def, Arm, ArrayLen, BindingAnnotation, Block, BlockCheckMode, Body, ByRef, Closure, Destination, Expr,
+    self as hir, def, Arm, ArrayLen, BindingMode, Block, BlockCheckMode, Body, ByRef, Closure, Destination, Expr,
     ExprField, ExprKind, FnDecl, FnRetTy, GenericArgs, HirId, Impl, ImplItem, ImplItemKind, ImplItemRef, Item,
     ItemKind, LangItem, LetStmt, MatchSource, Mutability, Node, OwnerId, Param, Pat, PatKind, Path, PathSegment,
     PrimTy, QPath, Stmt, StmtKind, TraitItem, TraitItemKind, TraitItemRef, TraitRef, TyKind, UnOp,
@@ -184,12 +184,27 @@ pub fn expr_or_init<'a, 'b, 'tcx: 'b>(cx: &LateContext<'tcx>, mut expr: &'a Expr
 /// canonical binding `HirId`.
 pub fn find_binding_init<'tcx>(cx: &LateContext<'tcx>, hir_id: HirId) -> Option<&'tcx Expr<'tcx>> {
     if let Node::Pat(pat) = cx.tcx.hir_node(hir_id)
-        && matches!(pat.kind, PatKind::Binding(BindingAnnotation::NONE, ..))
+        && matches!(pat.kind, PatKind::Binding(BindingMode::NONE, ..))
         && let Node::LetStmt(local) = cx.tcx.parent_hir_node(hir_id)
     {
         return local.init;
     }
     None
+}
+
+/// Checks if the given local has an initializer or is from something other than a `let` statement
+///
+/// e.g. returns true for `x` in `fn f(x: usize) { .. }` and `let x = 1;` but false for `let x;`
+pub fn local_is_initialized(cx: &LateContext<'_>, local: HirId) -> bool {
+    for (_, node) in cx.tcx.hir().parent_iter(local) {
+        match node {
+            Node::Pat(..) | Node::PatField(..) => {},
+            Node::LetStmt(let_stmt) => return let_stmt.init.is_some(),
+            _ => return true,
+        }
+    }
+
+    false
 }
 
 /// Returns `true` if the given `NodeId` is inside a constant context
@@ -1498,15 +1513,18 @@ pub fn is_else_clause_in_let_else(tcx: TyCtxt<'_>, expr: &Expr<'_>) -> bool {
 }
 
 /// Checks whether the given `Expr` is a range equivalent to a `RangeFull`.
+///
 /// For the lower bound, this means that:
 /// - either there is none
 /// - or it is the smallest value that can be represented by the range's integer type
+///
 /// For the upper bound, this means that:
 /// - either there is none
 /// - or it is the largest value that can be represented by the range's integer type and is
 ///   inclusive
 /// - or it is a call to some container's `len` method and is exclusive, and the range is passed to
 ///   a method call on that same container (e.g. `v.drain(..v.len())`)
+///
 /// If the given `Expr` is not some kind of range, the function returns `false`.
 pub fn is_range_full(cx: &LateContext<'_>, expr: &Expr<'_>, container_path: Option<&Path<'_>>) -> bool {
     let ty = cx.typeck_results().expr_ty(expr);
@@ -2546,6 +2564,11 @@ pub fn is_in_cfg_test(tcx: TyCtxt<'_>, id: HirId) -> bool {
     tcx.hir()
         .parent_id_iter(id)
         .any(|parent_id| is_cfg_test(tcx, parent_id))
+}
+
+/// Checks if the node is in a `#[test]` function or has any parent node marked `#[cfg(test)]`
+pub fn is_in_test(tcx: TyCtxt<'_>, hir_id: HirId) -> bool {
+    is_in_test_function(tcx, hir_id) || is_in_cfg_test(tcx, hir_id)
 }
 
 /// Checks if the item of any of its parents has `#[cfg(...)]` attribute applied.
