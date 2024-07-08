@@ -13,7 +13,7 @@ use pulldown_cmark::{BrokenLink, CodeBlockKind, CowStr, Options};
 use rustc_ast::ast::Attribute;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_hir::intravisit::{self, Visitor};
-use rustc_hir::{AnonConst, Expr, ImplItemKind, ItemKind, Node, TraitItemKind, Unsafety};
+use rustc_hir::{AnonConst, Expr, ImplItemKind, ItemKind, Node, Safety, TraitItemKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::hir::nested_filter;
 use rustc_middle::lint::in_external_macro;
@@ -261,7 +261,7 @@ declare_clippy_lint! {
     /// Checks for the doc comments of publicly visible
     /// safe functions and traits and warns if there is a `# Safety` section.
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// Safe functions and traits are safe to implement and therefore do not
     /// need to describe safety preconditions that users are required to uphold.
     ///
@@ -474,13 +474,13 @@ impl<'tcx> LateLintPass<'tcx> for Documentation {
                     }
                 },
                 ItemKind::Trait(_, unsafety, ..) => match (headers.safety, unsafety) {
-                    (false, Unsafety::Unsafe) => span_lint(
+                    (false, Safety::Unsafe) => span_lint(
                         cx,
                         MISSING_SAFETY_DOC,
                         cx.tcx.def_span(item.owner_id),
                         "docs for unsafe trait missing `# Safety` section",
                     ),
-                    (true, Unsafety::Normal) => span_lint(
+                    (true, Safety::Safe) => span_lint(
                         cx,
                         UNNECESSARY_SAFETY_DOC,
                         cx.tcx.def_span(item.owner_id),
@@ -750,10 +750,11 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
             Start(_tag) | End(_tag) => (), // We don't care about other tags
             SoftBreak | HardBreak => {
                 if !containers.is_empty()
-                    && let Some((_next_event, next_range)) = events.peek()
+                    && let Some((next_event, next_range)) = events.peek()
                     && let Some(next_span) = fragments.span(cx, next_range.clone())
                     && let Some(span) = fragments.span(cx, range.clone())
                     && !in_footnote_definition
+                    && !matches!(next_event, End(_))
                 {
                     lazy_continuation::check(
                         cx,
@@ -761,13 +762,25 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
                         range.end..next_range.start,
                         Span::new(span.hi(), next_span.lo(), span.ctxt(), span.parent()),
                         &containers[..],
+                        span,
                     );
                 }
             },
             TaskListMarker(_) | Code(_) | Rule => (),
             FootnoteReference(text) | Text(text) => {
                 paragraph_range.end = range.end;
-                ticks_unbalanced |= text.contains('`') && !in_code;
+                let range_ = range.clone();
+                ticks_unbalanced |= text.contains('`')
+                    && !in_code
+                    && doc[range.clone()].bytes().enumerate().any(|(i, c)| {
+                        // scan the markdown source code bytes for backquotes that aren't preceded by backslashes
+                        // - use bytes, instead of chars, to avoid utf8 decoding overhead (special chars are ascii)
+                        // - relevant backquotes are within doc[range], but backslashes are not, because they're not
+                        //   actually part of the rendered text (pulldown-cmark doesn't emit any events for escapes)
+                        // - if `range_.start + i == 0`, then `range_.start + i - 1 == -1`, and since we're working in
+                        //   usize, that would underflow and maybe panic
+                        c == b'`' && (range_.start + i == 0 || doc.as_bytes().get(range_.start + i - 1) != Some(&b'\\'))
+                    });
                 if Some(&text) == in_link.as_ref() || ticks_unbalanced {
                     // Probably a link of the form `<http://example.com>`
                     // Which are represented as a link to "http://example.com" with

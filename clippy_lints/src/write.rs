@@ -1,7 +1,7 @@
 use clippy_utils::diagnostics::{span_lint, span_lint_and_then};
+use clippy_utils::is_in_test;
 use clippy_utils::macros::{format_arg_removal_span, root_macro_call_first_node, FormatArgsStorage, MacroCall};
 use clippy_utils::source::{expand_past_previous_comma, snippet_opt};
-use clippy_utils::{is_in_cfg_test, is_in_test_function};
 use rustc_ast::token::LitKind;
 use rustc_ast::{
     FormatArgPosition, FormatArgPositionKind, FormatArgs, FormatArgsPiece, FormatOptions, FormatPlaceholder,
@@ -66,7 +66,7 @@ declare_clippy_lint! {
     /// Checks for printing on *stdout*. The purpose of this lint
     /// is to catch debugging remnants.
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// People often print on *stdout* while debugging an
     /// application and might forget to remove those prints afterward.
     ///
@@ -88,7 +88,7 @@ declare_clippy_lint! {
     /// Checks for printing on *stderr*. The purpose of this lint
     /// is to catch debugging remnants.
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// People often print on *stderr* while debugging an
     /// application and might forget to remove those prints afterward.
     ///
@@ -110,15 +110,18 @@ declare_clippy_lint! {
     /// Checks for usage of `Debug` formatting. The purpose of this
     /// lint is to catch debugging remnants.
     ///
-    /// ### Why is this bad?
-    /// The purpose of the `Debug` trait is to facilitate
-    /// debugging Rust code. It should not be used in user-facing output.
+    /// ### Why restrict this?
+    /// The purpose of the `Debug` trait is to facilitate debugging Rust code,
+    /// and [no guarantees are made about its output][stability].
+    /// It should not be used in user-facing output.
     ///
     /// ### Example
     /// ```no_run
     /// # let foo = "bar";
     /// println!("{:?}", foo);
     /// ```
+    ///
+    /// [stability]: https://doc.rust-lang.org/stable/std/fmt/trait.Debug.html#stability
     #[clippy::version = "pre 1.29.0"]
     pub USE_DEBUG,
     restriction,
@@ -294,8 +297,7 @@ impl<'tcx> LateLintPass<'tcx> for Write {
             .as_ref()
             .map_or(false, |crate_name| crate_name == "build_script_build");
 
-        let allowed_in_tests = self.allow_print_in_tests
-            && (is_in_test_function(cx.tcx, expr.hir_id) || is_in_cfg_test(cx.tcx, expr.hir_id));
+        let allowed_in_tests = self.allow_print_in_tests && is_in_test(cx.tcx, expr.hir_id);
         match diag_name {
             sym::print_macro | sym::println_macro if !allowed_in_tests => {
                 if !is_build_script {

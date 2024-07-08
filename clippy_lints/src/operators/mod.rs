@@ -70,7 +70,7 @@ declare_clippy_lint! {
     /// Known safe built-in types like `Wrapping` or `Saturating`, floats, operations in constant
     /// environments, allowed types and non-constant operations that won't overflow are ignored.
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// For integers, overflow will trigger a panic in debug builds or wrap the result in
     /// release mode; division by zero will cause a panic in either mode. As a result, it is
     /// desirable to explicitly call checked, wrapping or saturating arithmetic methods.
@@ -100,7 +100,7 @@ declare_clippy_lint! {
     /// ### What it does
     /// Checks for float arithmetic.
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// For some embedded systems or kernel development, it
     /// can be useful to rule out floating-point numbers.
     ///
@@ -242,6 +242,13 @@ declare_clippy_lint! {
     /// # let x = 1;
     /// if (x | 1 > 3) {  }
     /// ```
+    ///
+    /// Use instead:
+    ///
+    /// ```no_run
+    /// # let x = 1;
+    /// if (x >= 2) {  }
+    /// ```
     #[clippy::version = "pre 1.29.0"]
     pub INEFFECTIVE_BIT_MASK,
     correctness,
@@ -264,6 +271,13 @@ declare_clippy_lint! {
     /// ```no_run
     /// # let x = 1;
     /// if x & 0b1111 == 0 { }
+    /// ```
+    ///
+    /// Use instead:
+    ///
+    /// ```no_run
+    /// # let x: i32 = 1;
+    /// if x.trailing_zeros() > 4 { }
     /// ```
     #[clippy::version = "pre 1.29.0"]
     pub VERBOSE_BIT_MASK,
@@ -502,7 +516,7 @@ declare_clippy_lint! {
     /// ### What it does
     /// Checks for division of integers
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// When outside of some very specific algorithms,
     /// integer division is very often a mistake because it discards the
     /// remainder.
@@ -596,7 +610,7 @@ declare_clippy_lint! {
     /// value and constant, except in functions called `*eq*` (which probably
     /// implement equality for a type involving floats).
     ///
-    /// ### Why is this bad?
+    /// ### Why restrict this?
     /// Floating point calculations are usually imprecise, so
     /// asking if two values are *exactly* equal is asking for trouble. For a good
     /// guide on what to do, see [the floating point
@@ -627,7 +641,7 @@ declare_clippy_lint! {
 
 declare_clippy_lint! {
     /// ### What it does
-    /// Checks for getting the remainder of a division by one or minus
+    /// Checks for getting the remainder of integer division by one or minus
     /// one.
     ///
     /// ### Why is this bad?
@@ -646,15 +660,15 @@ declare_clippy_lint! {
     #[clippy::version = "pre 1.29.0"]
     pub MODULO_ONE,
     correctness,
-    "taking a number modulo +/-1, which can either panic/overflow or always returns 0"
+    "taking an integer modulo +/-1, which can either panic/overflow or always returns 0"
 }
 
 declare_clippy_lint! {
     /// ### What it does
     /// Checks for modulo arithmetic.
     ///
-    /// ### Why is this bad?
-    /// The results of modulo (%) operation might differ
+    /// ### Why restrict this?
+    /// The results of modulo (`%`) operation might differ
     /// depending on the language, when negative numbers are involved.
     /// If you interop with different languages it might be beneficial
     /// to double check all places that use modulo arithmetic.
@@ -868,11 +882,11 @@ impl<'tcx> LateLintPass<'tcx> for Operators {
         self.arithmetic_context.expr_post(e.hir_id);
     }
 
-    fn check_body(&mut self, cx: &LateContext<'tcx>, b: &'tcx Body<'_>) {
+    fn check_body(&mut self, cx: &LateContext<'tcx>, b: &Body<'_>) {
         self.arithmetic_context.enter_body(cx, b);
     }
 
-    fn check_body_post(&mut self, cx: &LateContext<'tcx>, b: &'tcx Body<'_>) {
+    fn check_body_post(&mut self, cx: &LateContext<'tcx>, b: &Body<'_>) {
         self.arithmetic_context.body_post(cx, b);
     }
 }
