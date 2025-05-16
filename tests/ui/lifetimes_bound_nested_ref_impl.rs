@@ -1,4 +1,4 @@
-// This was started as a copy from the fixed output of lifetimes_bound_nested_ref_expl.fixed 
+// This was started as a copy from the fixed output of lifetimes_bound_nested_ref_expl.fixed
 // Adapted: the lint name and the code comments.
 #![warn(clippy::implicit_lifetimes_bound)]
 use core::mem::MaybeUninit;
@@ -51,7 +51,7 @@ impl<'a: 'b, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
 unsafe fn deinit_slice_mut<'a, 'b: 'a, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
     let s: *mut &mut [T] = s;
     let s = s as *mut &mut [MaybeUninit<T>];
-    unsafe {&mut *s}
+    unsafe { &mut *s }
 }
 
 // test case for unnamed references.
