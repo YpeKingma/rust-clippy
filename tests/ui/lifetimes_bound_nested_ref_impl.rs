@@ -51,7 +51,7 @@ impl<'a: 'b, 'b> Extend1<'a, 'b> for <&'b &'a () as Trait1>::Type1 {
 unsafe fn deinit_slice_mut<'a, 'b: 'a, T>(s: &'a mut &'b mut [T]) -> &'a mut &'b mut [MaybeUninit<T>] {
     let s: *mut &mut [T] = s;
     let s = s as *mut &mut [MaybeUninit<T>];
-    &mut *s
+    unsafe {&mut *s}
 }
 
 // test case for unnamed references.
