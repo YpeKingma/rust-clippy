@@ -3,7 +3,8 @@
 
 fn main() {
     let x = [1, 2, 3, 4];
-    for _ in vec.iter().next() {}
+    for _ in x.iter().next() {}
+    //~^ iter_next_loop
 
     struct Unrelated(&'static [u8]);
     impl Unrelated {

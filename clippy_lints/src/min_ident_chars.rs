@@ -1,11 +1,11 @@
+use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint;
 use clippy_utils::is_from_proc_macro;
 use rustc_data_structures::fx::FxHashSet;
 use rustc_hir::def::{DefKind, Res};
-use rustc_hir::intravisit::{walk_item, walk_trait_item, Visitor};
+use rustc_hir::intravisit::{Visitor, walk_item, walk_trait_item};
 use rustc_hir::{GenericParamKind, HirId, Item, ItemKind, ItemLocalId, Node, Pat, PatKind, TraitItem, UsePath};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
-use rustc_middle::lint::in_external_macro;
 use rustc_session::impl_lint_pass;
 use rustc_span::Span;
 use std::borrow::Cow;
@@ -39,16 +39,22 @@ declare_clippy_lint! {
 }
 impl_lint_pass!(MinIdentChars => [MIN_IDENT_CHARS]);
 
-#[derive(Clone)]
 pub struct MinIdentChars {
-    pub allowed_idents_below_min_chars: FxHashSet<String>,
-    pub min_ident_chars_threshold: u64,
+    allowed_idents_below_min_chars: FxHashSet<String>,
+    min_ident_chars_threshold: u64,
 }
 
 impl MinIdentChars {
+    pub fn new(conf: &'static Conf) -> Self {
+        Self {
+            allowed_idents_below_min_chars: conf.allowed_idents_below_min_chars.iter().cloned().collect(),
+            min_ident_chars_threshold: conf.min_ident_chars_threshold,
+        }
+    }
+
     #[expect(clippy::cast_possible_truncation)]
     fn is_ident_too_short(&self, cx: &LateContext<'_>, str: &str, span: Span) -> bool {
-        !in_external_macro(cx.sess(), span)
+        !span.in_external_macro(cx.sess().source_map())
             && str.len() <= self.min_ident_chars_threshold as usize
             && !str.starts_with('_')
             && !str.is_empty()
@@ -116,8 +122,7 @@ impl Visitor<'_> for IdentVisitor<'_, '_> {
             // has no control over the type.
             let usenode = opt_as_use_node(node).or_else(|| {
                 cx.tcx
-                    .hir()
-                    .parent_iter(hir_id)
+                    .hir_parent_iter(hir_id)
                     .find_map(|(_, node)| opt_as_use_node(node))
             });
 
@@ -132,11 +137,11 @@ impl Visitor<'_> for IdentVisitor<'_, '_> {
                 return;
             }
 
-            // `struct Awa<T>(T)`
-            //                ^
+            // `struct Array<T, const N: usize>([T; N])`
+            //                                   ^  ^
             if let Node::PathSegment(path) = node {
                 if let Res::Def(def_kind, ..) = path.res
-                    && let DefKind::TyParam = def_kind
+                    && let DefKind::TyParam | DefKind::ConstParam = def_kind
                 {
                     return;
                 }

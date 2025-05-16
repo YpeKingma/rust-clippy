@@ -1,3 +1,4 @@
+use clippy_config::Conf;
 use clippy_utils::diagnostics::span_lint;
 use rustc_ast::ast;
 use rustc_data_structures::fx::FxHashSet;
@@ -44,19 +45,20 @@ declare_clippy_lint! {
     "usage of non-allowed Unicode scripts"
 }
 
-#[derive(Clone, Debug)]
 pub struct DisallowedScriptIdents {
     whitelist: FxHashSet<Script>,
 }
 
 impl DisallowedScriptIdents {
-    pub fn new(whitelist: &[String]) -> Self {
-        let whitelist = whitelist
-            .iter()
-            .map(String::as_str)
-            .filter_map(Script::from_full_name)
-            .collect();
-        Self { whitelist }
+    pub fn new(conf: &'static Conf) -> Self {
+        Self {
+            whitelist: conf
+                .allowed_scripts
+                .iter()
+                .map(String::as_str)
+                .filter_map(Script::from_full_name)
+                .collect(),
+        }
     }
 }
 
@@ -67,7 +69,7 @@ impl EarlyLintPass for DisallowedScriptIdents {
         // Implementation is heavily inspired by the implementation of [`non_ascii_idents`] lint:
         // https://github.com/rust-lang/rust/blob/master/compiler/rustc_lint/src/non_ascii_idents.rs
 
-        let check_disallowed_script_idents = cx.builder.lint_level(DISALLOWED_SCRIPT_IDENTS).0 != Level::Allow;
+        let check_disallowed_script_idents = cx.builder.lint_level(DISALLOWED_SCRIPT_IDENTS).level != Level::Allow;
         if !check_disallowed_script_idents {
             return;
         }
@@ -78,7 +80,7 @@ impl EarlyLintPass for DisallowedScriptIdents {
         let mut symbols: Vec<_> = symbols.iter().collect();
         symbols.sort_unstable_by_key(|k| k.1);
 
-        for (symbol, &span) in &symbols {
+        for &(symbol, &span) in &symbols {
             // Note: `symbol.as_str()` is an expensive operation, thus should not be called
             // more than once for a single symbol.
             let symbol_str = symbol.as_str();

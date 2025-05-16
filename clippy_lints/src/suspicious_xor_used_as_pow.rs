@@ -1,11 +1,10 @@
-use clippy_utils::diagnostics::span_lint_and_sugg;
+use clippy_utils::diagnostics::span_lint_and_then;
 use clippy_utils::numeric_literal::NumericLiteral;
 use clippy_utils::source::snippet;
 use rustc_ast::LitKind;
 use rustc_errors::Applicability;
 use rustc_hir::{BinOpKind, Expr, ExprKind};
 use rustc_lint::{LateContext, LateLintPass, LintContext};
-use rustc_middle::lint::in_external_macro;
 use rustc_session::declare_lint_pass;
 
 declare_clippy_lint! {
@@ -32,7 +31,7 @@ declare_lint_pass!(ConfusingXorAndPow => [SUSPICIOUS_XOR_USED_AS_POW]);
 
 impl LateLintPass<'_> for ConfusingXorAndPow {
     fn check_expr(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) {
-        if !in_external_macro(cx.sess(), expr.span)
+        if !expr.span.in_external_macro(cx.sess().source_map())
             && let ExprKind::Binary(op, left, right) = &expr.kind
             && op.node == BinOpKind::BitXor
             && left.span.eq_ctxt(right.span)
@@ -43,14 +42,19 @@ impl LateLintPass<'_> for ConfusingXorAndPow {
             && NumericLiteral::from_lit_kind(&snippet(cx, lit_right.span, ".."), &lit_right.node)
                 .is_some_and(|x| x.is_decimal())
         {
-            span_lint_and_sugg(
+            span_lint_and_then(
                 cx,
                 SUSPICIOUS_XOR_USED_AS_POW,
                 expr.span,
                 "`^` is not the exponentiation operator",
-                "did you mean to write",
-                format!("{}.pow({})", lit_left.node, lit_right.node),
-                Applicability::MaybeIncorrect,
+                |diag| {
+                    diag.span_suggestion_verbose(
+                        expr.span,
+                        "did you mean to write",
+                        format!("{}.pow({})", lit_left.node, lit_right.node),
+                        Applicability::MaybeIncorrect,
+                    );
+                },
             );
         }
     }

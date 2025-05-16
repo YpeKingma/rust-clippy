@@ -1,10 +1,10 @@
-use clippy_utils::diagnostics::span_lint_and_help;
+use clippy_utils::diagnostics::span_lint_and_then;
+use rustc_attr_parsing::{AttributeKind, ReprAttr, find_attr};
 use rustc_hir::{HirId, Item, ItemKind};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::ty::layout::LayoutOf;
 use rustc_middle::ty::{self, FieldDef};
 use rustc_session::declare_lint_pass;
-use rustc_span::sym;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -56,16 +56,18 @@ impl<'tcx> LateLintPass<'tcx> for DefaultUnionRepresentation {
             && is_union_with_two_non_zst_fields(cx, item)
             && !has_c_repr_attr(cx, item.hir_id())
         {
-            span_lint_and_help(
+            #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+            span_lint_and_then(
                 cx,
                 DEFAULT_UNION_REPRESENTATION,
                 item.span,
                 "this union has the default representation",
-                None,
-                format!(
-                    "consider annotating `{}` with `#[repr(C)]` to explicitly specify memory layout",
-                    cx.tcx.def_path_str(item.owner_id)
-                ),
+                |diag| {
+                    diag.help(format!(
+                        "consider annotating `{}` with `#[repr(C)]` to explicitly specify memory layout",
+                        cx.tcx.def_path_str(item.owner_id)
+                    ));
+                },
             );
         }
     }
@@ -95,16 +97,7 @@ fn is_zst<'tcx>(cx: &LateContext<'tcx>, field: &FieldDef, args: ty::GenericArgsR
 }
 
 fn has_c_repr_attr(cx: &LateContext<'_>, hir_id: HirId) -> bool {
-    cx.tcx.hir().attrs(hir_id).iter().any(|attr| {
-        if attr.has_name(sym::repr) {
-            if let Some(items) = attr.meta_item_list() {
-                for item in items {
-                    if item.is_word() && matches!(item.name_or_empty(), sym::C) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    })
+    let attrs = cx.tcx.hir_attrs(hir_id);
+
+    find_attr!(attrs, AttributeKind::Repr(r) if r.iter().any(|(x, _)| *x == ReprAttr::ReprC))
 }

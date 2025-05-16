@@ -1,9 +1,8 @@
-use clippy_utils::diagnostics::span_lint_and_help;
-use clippy_utils::ty::{implements_trait, is_must_use_ty, match_type};
+use clippy_utils::diagnostics::span_lint_and_then;
+use clippy_utils::ty::{implements_trait, is_must_use_ty};
 use clippy_utils::{is_from_proc_macro, is_must_use_func_call, paths};
 use rustc_hir::{LetStmt, LocalSource, PatKind};
 use rustc_lint::{LateContext, LateLintPass};
-use rustc_middle::lint::in_external_macro;
 use rustc_middle::ty::{GenericArgKind, IsSuggestable};
 use rustc_session::declare_lint_pass;
 use rustc_span::{BytePos, Span};
@@ -130,62 +129,68 @@ declare_clippy_lint! {
 
 declare_lint_pass!(LetUnderscore => [LET_UNDERSCORE_MUST_USE, LET_UNDERSCORE_LOCK, LET_UNDERSCORE_FUTURE, LET_UNDERSCORE_UNTYPED]);
 
-const SYNC_GUARD_PATHS: [&[&str]; 3] = [
-    &paths::PARKING_LOT_MUTEX_GUARD,
-    &paths::PARKING_LOT_RWLOCK_READ_GUARD,
-    &paths::PARKING_LOT_RWLOCK_WRITE_GUARD,
-];
-
 impl<'tcx> LateLintPass<'tcx> for LetUnderscore {
     fn check_local(&mut self, cx: &LateContext<'tcx>, local: &LetStmt<'tcx>) {
         if matches!(local.source, LocalSource::Normal)
-            && !in_external_macro(cx.tcx.sess, local.span)
             && let PatKind::Wild = local.pat.kind
             && let Some(init) = local.init
+            && !local.span.in_external_macro(cx.tcx.sess.source_map())
         {
             let init_ty = cx.typeck_results().expr_ty(init);
             let contains_sync_guard = init_ty.walk().any(|inner| match inner.unpack() {
-                GenericArgKind::Type(inner_ty) => SYNC_GUARD_PATHS.iter().any(|path| match_type(cx, inner_ty, path)),
+                GenericArgKind::Type(inner_ty) => inner_ty
+                    .ty_adt_def()
+                    .is_some_and(|adt| paths::PARKING_LOT_GUARDS.iter().any(|path| path.matches(cx, adt.did()))),
                 GenericArgKind::Lifetime(_) | GenericArgKind::Const(_) => false,
             });
             if contains_sync_guard {
-                span_lint_and_help(
+                #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+                span_lint_and_then(
                     cx,
                     LET_UNDERSCORE_LOCK,
                     local.span,
                     "non-binding `let` on a synchronization lock",
-                    None,
-                    "consider using an underscore-prefixed named \
-                            binding or dropping explicitly with `std::mem::drop`",
+                    |diag| {
+                        diag.help(
+                            "consider using an underscore-prefixed named \
+                                binding or dropping explicitly with `std::mem::drop`",
+                        );
+                    },
                 );
             } else if let Some(future_trait_def_id) = cx.tcx.lang_items().future_trait()
                 && implements_trait(cx, cx.typeck_results().expr_ty(init), future_trait_def_id, &[])
             {
-                span_lint_and_help(
+                #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+                span_lint_and_then(
                     cx,
                     LET_UNDERSCORE_FUTURE,
                     local.span,
                     "non-binding `let` on a future",
-                    None,
-                    "consider awaiting the future or dropping explicitly with `std::mem::drop`",
+                    |diag| {
+                        diag.help("consider awaiting the future or dropping explicitly with `std::mem::drop`");
+                    },
                 );
             } else if is_must_use_ty(cx, cx.typeck_results().expr_ty(init)) {
-                span_lint_and_help(
+                #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+                span_lint_and_then(
                     cx,
                     LET_UNDERSCORE_MUST_USE,
                     local.span,
                     "non-binding `let` on an expression with `#[must_use]` type",
-                    None,
-                    "consider explicitly using expression value",
+                    |diag| {
+                        diag.help("consider explicitly using expression value");
+                    },
                 );
             } else if is_must_use_func_call(cx, init) {
-                span_lint_and_help(
+                #[expect(clippy::collapsible_span_lint_calls, reason = "rust-clippy#7797")]
+                span_lint_and_then(
                     cx,
                     LET_UNDERSCORE_MUST_USE,
                     local.span,
                     "non-binding `let` on a result of a `#[must_use]` function",
-                    None,
-                    "consider explicitly using function result",
+                    |diag| {
+                        diag.help("consider explicitly using function result");
+                    },
                 );
             }
 
@@ -204,18 +209,22 @@ impl<'tcx> LateLintPass<'tcx> for LetUnderscore {
                     return;
                 }
 
-                span_lint_and_help(
+                span_lint_and_then(
                     cx,
                     LET_UNDERSCORE_UNTYPED,
                     local.span,
                     "non-binding `let` without a type annotation",
-                    Some(Span::new(
-                        local.pat.span.hi(),
-                        local.pat.span.hi() + BytePos(1),
-                        local.pat.span.ctxt(),
-                        local.pat.span.parent(),
-                    )),
-                    "consider adding a type annotation",
+                    |diag| {
+                        diag.span_help(
+                            Span::new(
+                                local.pat.span.hi(),
+                                local.pat.span.hi() + BytePos(1),
+                                local.pat.span.ctxt(),
+                                local.pat.span.parent(),
+                            ),
+                            "consider adding a type annotation",
+                        );
+                    },
                 );
             }
         }

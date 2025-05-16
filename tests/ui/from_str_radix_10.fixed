@@ -1,4 +1,3 @@
-#![feature(const_int_from_str)]
 #![warn(clippy::from_str_radix_10)]
 
 mod some_mod {
@@ -27,26 +26,30 @@ impl std::ops::Add<Test> for Test {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // all of these should trigger the lint
     "30".parse::<u32>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
-    //~| NOTE: `-D clippy::from-str-radix-10` implied by `-D warnings`
+    //~^ from_str_radix_10
+
     "24".parse::<i64>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
+
     "100".parse::<isize>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
+
     "7".parse::<u8>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
+
     ("10".to_owned() + "5").parse::<u16>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
+
     (Test + Test).parse::<i128>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
 
     let string = "300";
     string.parse::<i32>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
 
     let stringier = "400".to_string();
     stringier.parse::<i32>()?;
-    //~^ ERROR: this call to `from_str_radix` can be replaced with a call to `str::parse`
+    //~^ from_str_radix_10
 
     // none of these should trigger the lint
     u16::from_str_radix("20", 3)?;
@@ -61,7 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn issue_12732() {
+// https://github.com/rust-lang/rust-clippy/issues/12731
+fn issue_12731() {
     const A: Result<u32, std::num::ParseIntError> = u32::from_str_radix("123", 10);
     const B: () = {
         let _ = u32::from_str_radix("123", 10);
