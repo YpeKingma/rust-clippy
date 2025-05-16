@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 /// Lints to help dealing with unsoundness due to a compiler bug described here:
 /// <https://github.com/rust-lang/rustc-dev-guide/blob/478a77a902f64e5128e7164e4e8a3980cfe4b133/src/traits/implied-bounds.md>.
 ///
@@ -20,13 +21,12 @@
 /// that are implied by nested references. This reverse lint is intended to be used only
 /// when the compiler has been fixed to handle these lifetime bounds correctly.
 use std::collections::btree_map::Entry;
-use std::collections::BTreeMap;
 
 use clippy_utils::diagnostics::{span_lint_and_note, span_lint_and_then};
 use rustc_ast::visit::FnKind;
 use rustc_ast::{
     AngleBracketedArg, FnRetTy, GenericArg, GenericArgs, GenericBound, GenericParamKind, Generics, Item, ItemKind,
-    NodeId, Path, Ty, TyKind, WherePredicate,
+    NodeId, Path, Ty, TyKind, WherePredicateKind,
 };
 use rustc_errors::Applicability;
 use rustc_lint::{EarlyContext, EarlyLintPass, Lint, LintContext};
@@ -152,18 +152,24 @@ impl EarlyLintPass for LifetimesBoundNestedRef {
     /// Compare these with lifetime bounds implied by nested references
     /// in the function arguments and return value.
     fn check_fn(&mut self, early_context: &EarlyContext<'_>, fn_kind: FnKind<'_>, _fn_span: Span, _node_id: NodeId) {
-        let FnKind::Fn(_fn_ctxt, _ident, fn_sig, _visibility, generics, _opt_block) = fn_kind else {
+        let generics;
+        let fn_signature;
+        if let FnKind::Fn(_fn_cntxt, _visibility, fn_ref) = fn_kind {
+            generics = &fn_ref.generics;
+            fn_signature = &fn_ref.sig;
+        } else {
             return;
         };
+
         let declared_lifetimes_spans = get_declared_lifetimes_spans(generics);
         if declared_lifetimes_spans.len() <= 1 {
             return;
         }
         let mut linter = ImpliedBoundsLinter::new(declared_lifetimes_spans, generics);
-        for param in &fn_sig.decl.inputs {
+        for param in &fn_signature.decl.inputs {
             linter.collect_implied_lifetime_bounds(&param.ty);
         }
-        if let FnRetTy::Ty(ret_ty) = &fn_sig.decl.output {
+        if let FnRetTy::Ty(ret_ty) = &fn_signature.decl.output {
             linter.collect_implied_lifetime_bounds(ret_ty);
         }
         linter.report_lints(early_context);
@@ -252,12 +258,12 @@ fn get_declared_bounds_spans(generics: &Generics) -> BTreeMap<BoundLftSymbolPair
         });
     });
     generics.where_clause.predicates.iter().for_each(|wp| {
-        if let WherePredicate::RegionPredicate(wrp) = wp {
+        if let WherePredicateKind::RegionPredicate(wrp) = &wp.kind {
             let long_lft_sym = wrp.lifetime.ident.name;
             wrp.bounds.iter().for_each(|bound| {
                 if let GenericBound::Outlives(outlived_lft) = bound {
                     // CHECKME: how to make a good span for the lifetimes bound declaration here?
-                    declared_bounds.insert(BoundLftSymbolPair::new(long_lft_sym, outlived_lft.ident.name), wrp.span);
+                    declared_bounds.insert(BoundLftSymbolPair::new(long_lft_sym, outlived_lft.ident.name), wp.span);
                 }
             });
         }
@@ -348,6 +354,12 @@ impl ImpliedBoundsLinter {
                         outliving_tys.push(referred_to_ty);
                     }
                 },
+                TK::PinnedRef(_opt_lifetime, _mut_ty) => {
+                    // CHECKME: what is a pinned ref?
+                },
+                TK::UnsafeBinder(_pubt) => {
+                    // CHECKME: what is an unsafe binder?
+                },
                 TK::Slice(element_ty) => {
                     // not needed to detect reported issues
                     outliving_tys.push(element_ty);
@@ -377,10 +389,6 @@ impl ImpliedBoundsLinter {
                     // impl, not needed to detect reported issues
                     self.collect_nested_ref_bounds_gbs(generic_bounds, opt_outlived_lft_ident);
                 },
-                TK::AnonStruct(_node_id, _field_defs) | TK::AnonUnion(_node_id, _field_defs) => {
-                    // CHECKME: can the field definition types of an anonymous struct/union have
-                    // generic lifetimes?
-                },
                 TK::BareFn(_bare_fn_ty) => {
                     // CHECKME: can bare functions have generic lifetimes?
                 },
@@ -409,7 +417,7 @@ impl ImpliedBoundsLinter {
         for gb in generic_bounds {
             use GenericBound as GB;
             match gb {
-                GB::Trait(poly_trait_ref, _trait_bound_modifiers) => {
+                GB::Trait(poly_trait_ref) => {
                     for bgp in &poly_trait_ref.bound_generic_params {
                         use GenericParamKind as GPK;
                         match &bgp.kind {
